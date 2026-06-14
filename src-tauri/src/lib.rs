@@ -264,7 +264,6 @@ fn paste_to_active_window(state: State<'_, AppState>) {
     });
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tauri::command]
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn paste_to_active_window(state: State<'_, AppState>) {
@@ -321,6 +320,7 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
