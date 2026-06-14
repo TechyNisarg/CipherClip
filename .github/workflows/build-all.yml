@@ -37,7 +37,7 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: install app dependencies
         run: npm install
@@ -80,9 +80,13 @@ jobs:
         run: npm install
 
       - name: init tauri android
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npx tauri android init --ci
 
       - name: build tauri android
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npx tauri android build
 
       - name: Upload Android Build
@@ -90,33 +94,3 @@ jobs:
         with:
           name: cipherclip-android
           path: src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
-
-  build-ios:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
-
-      - name: install app dependencies
-        run: npm install
-
-      - name: init tauri ios
-        run: npx tauri ios init --ci
-
-      - name: build tauri ios
-        run: npx tauri ios build
-
-      - name: Upload iOS Build
-        uses: actions/upload-artifact@v4
-        with:
-          name: cipherclip-ios
-          path: src-tauri/gen/ios/build/Release-iphoneos/*.ipa
