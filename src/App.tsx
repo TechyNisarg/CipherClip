@@ -5,7 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2 } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, QrCode } from "lucide-react";
+import { scan, Format } from '@tauri-apps/plugin-barcode-scanner';
+import { type as osType } from '@tauri-apps/plugin-os';
 
 interface ClipItem {
   id: number;
@@ -116,6 +118,35 @@ function App() {
     } catch (err) {
       console.error("Failed to toggle autostart:", err);
       setAlertModal({ message: "Failed to toggle auto-start. Make sure your OS allows background apps.", isError: true });
+    }
+  };
+
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    try {
+      const t = osType();
+      setIsMobile(t === 'android' || t === 'ios');
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  const handleScanQR = async () => {
+    try {
+      const result = await scan({ windowed: true, formats: [Format.QRCode] });
+      if (result && result.content) {
+        if (result.content.length === 64) {
+          setSyncKeyInput(result.content);
+          await invoke("set_sync_key", { hexKey: result.content });
+          setSyncKey(result.content);
+          setAlertModal({ message: "Successfully paired with your device! Clipboards will now sync.", isError: false });
+        } else {
+          setAlertModal({ message: "Invalid QR Code. Sync Key must be 64 characters long.", isError: true });
+        }
+      }
+    } catch (err: any) {
+      setAlertModal({ message: "Scanner error or cancelled.", isError: true });
     }
   };
 
@@ -685,11 +716,22 @@ function App() {
                   </div>
                   <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/50 dark:bg-[#0d1117]/50 flex flex-col gap-4">
                     <div className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-xl p-4 shadow-sm flex flex-col items-center w-full">
-                      <div className="w-full flex items-center justify-start gap-2 mb-4">
-                        <Key className="w-5 h-5 text-emerald-500" />
-                        <label className="text-sm font-medium text-slate-700 dark:text-gray-300">
-                          Device Sync Key
-                        </label>
+                      <div className="w-full flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <Key className="w-5 h-5 text-emerald-500" />
+                          <label className="text-sm font-medium text-slate-700 dark:text-gray-300">
+                            Device Sync Key
+                          </label>
+                        </div>
+                        {isMobile && (
+                          <button
+                            onClick={handleScanQR}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-md text-xs font-medium transition-colors"
+                          >
+                            <QrCode className="w-4 h-4" />
+                            Scan QR
+                          </button>
+                        )}
                       </div>
                       
                       <div className="flex justify-center mb-4 p-4 bg-slate-50 dark:bg-gray-100 rounded-xl w-full">

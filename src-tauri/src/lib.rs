@@ -323,8 +323,14 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_log::Builder::new().build());
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    }
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
