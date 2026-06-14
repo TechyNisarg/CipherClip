@@ -6,7 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
 import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, QrCode } from "lucide-react";
-import { scan, Format } from '@tauri-apps/plugin-barcode-scanner';
+import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { type as osType } from '@tauri-apps/plugin-os';
 
 interface ClipItem {
@@ -132,9 +132,21 @@ function App() {
     }
   }, []);
 
+  const [isScanning, setIsScanning] = useState(false);
+
   const handleScanQR = async () => {
     try {
+      await requestPermissions();
+      setIsScanning(true);
+      document.documentElement.style.backgroundColor = 'transparent';
+      document.body.style.backgroundColor = 'transparent';
+
       const result = await scan({ windowed: true, formats: [Format.QRCode] });
+      
+      setIsScanning(false);
+      document.documentElement.style.backgroundColor = '';
+      document.body.style.backgroundColor = '';
+
       if (result && result.content) {
         if (result.content.length === 64) {
           setSyncKeyInput(result.content);
@@ -146,8 +158,18 @@ function App() {
         }
       }
     } catch (err: any) {
+      setIsScanning(false);
+      document.documentElement.style.backgroundColor = '';
+      document.body.style.backgroundColor = '';
       setAlertModal({ message: "Scanner error or cancelled.", isError: true });
     }
+  };
+
+  const handleCancelScan = async () => {
+    await cancel();
+    setIsScanning(false);
+    document.documentElement.style.backgroundColor = '';
+    document.body.style.backgroundColor = '';
   };
 
   const fetchSyncKey = async () => {
@@ -492,8 +514,22 @@ function App() {
 
   const displayedClips = activeTab === 'pinned' ? clips.filter(c => c.pinned) : clips.filter(c => !c.pinned);
 
+  if (isScanning) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-transparent flex flex-col items-center justify-end pb-16">
+        <div className="w-64 h-64 border-2 border-emerald-500 border-dashed rounded-3xl mb-16 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+        <button 
+          onClick={handleCancelScan}
+          className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-full font-medium shadow-lg transition-transform active:scale-95"
+        >
+          Cancel Scan
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0d1117] text-slate-800 dark:text-gray-200 p-6 flex flex-col items-center transition-colors">
+    <div className={`min-h-screen ${isScanning ? 'bg-transparent' : 'bg-slate-50 dark:bg-[#0d1117]'} text-slate-800 dark:text-gray-200 p-6 pt-[max(1.5rem,env(safe-area-inset-top))] flex flex-col items-center transition-colors`}>
       <header className="w-full max-w-xl flex justify-between items-center mb-6 pb-4 border-b border-slate-200 dark:border-gray-800 transition-all duration-300">
         <div className="flex items-center gap-3">
           <div className="bg-indigo-500/10 p-2 rounded-xl">
@@ -1415,7 +1451,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
           <span className="mx-1">•</span>
           <span className="uppercase">{clip.content_type}</span>
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className={`flex items-center gap-1 transition-opacity ${isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
           {clip.content_type === "image" && (
             <Tooltip text="Preview full image">
               <button
