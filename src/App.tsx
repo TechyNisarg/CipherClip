@@ -9,6 +9,8 @@ import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizo
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { type as osType } from '@tauri-apps/plugin-os';
 
+const isMobile = osType() === 'android' || osType() === 'ios';
+
 interface ClipItem {
   id: number;
   content_type: string;
