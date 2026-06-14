@@ -92,6 +92,11 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npx tauri android build
 
+      - name: Sign Release APK
+        run: |
+          keytool -genkey -v -keystore release.keystore -alias cipherclip -keyalg RSA -keysize 2048 -validity 10000 -dname "cn=CipherClip, ou=IT, o=CipherClip, c=US" -storepass password -keypass password
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks release.keystore --ks-pass pass:password --key-pass pass:password src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+
       - name: Upload Android Build
         uses: actions/upload-artifact@v4
         with:
