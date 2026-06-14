@@ -3,6 +3,8 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit, OsRng},
     XChaCha20Poly1305, XNonce,
 };
+use aes_gcm_siv::Aes256GcmSiv;
+use aes_gcm_siv::{Nonce as LegacyNonce, aead::Aead as LegacyAead, aead::KeyInit as LegacyKeyInit};
 use keyring::Entry;
 use std::sync::RwLock;
 
@@ -11,6 +13,7 @@ const KEYRING_USER: &str = "local_device_key";
 
 pub struct CryptoState {
     cipher: RwLock<XChaCha20Poly1305>,
+    legacy_cipher: RwLock<Aes256GcmSiv>,
 }
 
 impl CryptoState {
@@ -47,8 +50,10 @@ impl CryptoState {
         }
 
         let cipher = XChaCha20Poly1305::new_from_slice(&key_bytes).map_err(|e| e.to_string())?;
+        let legacy_cipher = Aes256GcmSiv::new_from_slice(&key_bytes).map_err(|e| e.to_string())?;
         Ok(Self {
             cipher: RwLock::new(cipher),
+            legacy_cipher: RwLock::new(legacy_cipher),
         })
     }
 
@@ -77,6 +82,7 @@ impl CryptoState {
 
         let new_cipher =
             XChaCha20Poly1305::new_from_slice(&key_bytes).map_err(|e| e.to_string())?;
+        let new_legacy_cipher = Aes256GcmSiv::new_from_slice(&key_bytes).map_err(|e| e.to_string())?;
 
         let key_file = app_dir.join(".local_device_key");
         let entry = Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())?;
@@ -85,6 +91,9 @@ impl CryptoState {
 
         let mut cipher_lock = self.cipher.write().unwrap();
         *cipher_lock = new_cipher;
+
+        let mut legacy_lock = self.legacy_cipher.write().unwrap();
+        *legacy_lock = new_legacy_cipher;
 
         Ok(())
     }
@@ -109,16 +118,35 @@ impl CryptoState {
 
     pub fn decrypt(&self, encrypted_payload: &[u8]) -> Result<Vec<u8>, String> {
         if encrypted_payload.len() < 24 {
+            // Might be a legacy AesGcmSiv payload which has a 12-byte nonce
+            if encrypted_payload.len() >= 12 {
+                let nonce = LegacyNonce::from_slice(&encrypted_payload[..12]);
+                let ciphertext = &encrypted_payload[12..];
+                if let Ok(decrypted) = self.legacy_cipher.read().unwrap().decrypt(nonce, ciphertext) {
+                    return Ok(decrypted);
+                }
+            }
             return Err("Payload too short to contain nonce".to_string());
         }
 
         let nonce = XNonce::from_slice(&encrypted_payload[..24]);
         let ciphertext = &encrypted_payload[24..];
 
-        self.cipher
-            .read()
-            .unwrap()
-            .decrypt(nonce, ciphertext)
-            .map_err(|e| e.to_string())
+        // Try primary cipher first
+        match self.cipher.read().unwrap().decrypt(nonce, ciphertext) {
+            Ok(decrypted) => Ok(decrypted),
+            Err(e) => {
+                // Fallback to legacy cipher if the payload is 24+ bytes but was actually encrypted with legacy cipher
+                // (Though legacy nonce is 12 bytes, if the payload length >= 12 it's possible it's a legacy payload)
+                if encrypted_payload.len() >= 12 {
+                    let legacy_nonce = LegacyNonce::from_slice(&encrypted_payload[..12]);
+                    let legacy_ciphertext = &encrypted_payload[12..];
+                    if let Ok(decrypted) = self.legacy_cipher.read().unwrap().decrypt(legacy_nonce, legacy_ciphertext) {
+                        return Ok(decrypted);
+                    }
+                }
+                Err(e.to_string())
+            }
+        }
     }
 }
