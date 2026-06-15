@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, Code } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
 import { type as osType } from '@tauri-apps/plugin-os';
@@ -631,28 +631,26 @@ function App() {
           <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent tracking-tight">
             CipherClip
           </h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <Tooltip text="Manual Sync Refresh" side="bottom">
+          <Tooltip text="Refresh History" side="bottom">
             <button 
               onClick={() => {
                 showToast("Refreshing clipboard...");
                 fetchHistory();
               }}
-              className="p-2 hover:bg-slate-200 dark:hover:bg-gray-800 text-slate-500 dark:text-gray-400 rounded-xl transition-colors cursor-pointer"
+              className="p-1.5 ml-1 hover:bg-slate-200 dark:hover:bg-gray-800 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300 rounded-lg transition-colors cursor-pointer"
             >
-              <RefreshCcw className="w-5 h-5" />
+              <RefreshCcw className="w-4 h-4" />
             </button>
           </Tooltip>
-          <Tooltip text="View Encryption Details" side="bottom">
-            <button 
-              onClick={() => setShowNetworkSync(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border cursor-pointer ${connectedPeers.length > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20' : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20'}`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              {connectedPeers.length > 0 ? `${connectedPeers.length} Device${connectedPeers.length > 1 ? 's' : ''} Connected` : "E2E Encrypted"}
-            </button>
-          </Tooltip>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setShowNetworkSync(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border cursor-pointer ${connectedPeers.length > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20' : 'bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 border-slate-200 dark:border-gray-700'}`}
+          >
+            <MonitorSmartphone className="w-4 h-4" />
+            <span>{connectedPeers.length}</span>
+          </button>
           <Tooltip text="Settings (Ctrl+I)" side="bottom">
             <button 
               onClick={() => setShowSettings(true)}
@@ -737,41 +735,49 @@ function App() {
       </main>
 
       {/* Alert Modal */}
-      {alertModal && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200"
-          onClick={() => setAlertModal(null)}
-        >
-          <div 
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
+      <AnimatePresence>
+        {alertModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4"
+            onClick={() => setAlertModal(null)}
           >
-            <div className={`p-4 border-b flex items-center gap-3 ${alertModal.isError ? 'border-red-100 dark:border-red-500/20 bg-red-50 dark:bg-red-500/10' : 'border-emerald-100 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/10'}`}>
-              <div className={`p-2 rounded-full ${alertModal.isError ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400' : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'}`}>
-                {alertModal.isError ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className={`p-4 border-b flex items-center gap-3 ${alertModal.isError ? 'border-red-100 dark:border-red-500/20 bg-red-50 dark:bg-red-500/10' : 'border-emerald-100 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/10'}`}>
+                <div className={`p-2 rounded-full ${alertModal.isError ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400' : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'}`}>
+                  {alertModal.isError ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                </div>
+                <h2 className={`font-semibold ${alertModal.isError ? 'text-red-800 dark:text-red-400' : 'text-emerald-800 dark:text-emerald-400'}`}>
+                  {alertModal.isError ? "Error" : "Success"}
+                </h2>
               </div>
-              <h2 className={`font-semibold ${alertModal.isError ? 'text-red-800 dark:text-red-400' : 'text-emerald-800 dark:text-emerald-400'}`}>
-                {alertModal.isError ? "Error" : "Success"}
-              </h2>
-            </div>
-            <div className="p-6 bg-slate-50/50 dark:bg-[#0d1117]/50">
-              <p className="text-sm text-slate-600 dark:text-gray-300 mb-6 leading-relaxed">
-                {alertModal.message}
-              </p>
-              <button
-                onClick={() => setAlertModal(null)}
-                className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  alertModal.isError 
-                    ? 'bg-slate-200 hover:bg-slate-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-200' 
-                    : 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
-                }`}
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              <div className="p-6 bg-slate-50/50 dark:bg-[#0d1117]/50">
+                <p className="text-sm text-slate-600 dark:text-gray-300 mb-6 leading-relaxed">
+                  {alertModal.message}
+                </p>
+                <button
+                  onClick={() => setAlertModal(null)}
+                  className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    alertModal.isError 
+                      ? 'bg-slate-200 hover:bg-slate-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-200' 
+                      : 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                  }`}
+                >
+                  OK
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Encryption Details Modal */}
       <AnimatePresence>
@@ -850,11 +856,9 @@ function App() {
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
-              className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col items-center p-8 text-center"
+              className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col items-center p-8 text-center max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
-              <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6 border border-indigo-500/20">
-                <MonitorSmartphone className="text-indigo-500 w-10 h-10" />
-              </div>
+              <img src="/logo.png" alt="CipherClip Logo" className="w-20 h-20 mb-6 rounded-3xl shadow-sm border border-slate-200/50 dark:border-gray-700/50" />
               <h2 className="text-2xl font-bold text-slate-800 dark:text-gray-100 mb-3">Welcome to CipherClip</h2>
               <p className="text-slate-600 dark:text-gray-400 mb-8 max-w-sm leading-relaxed">
                 The most secure, lightning-fast clipboard manager. 
@@ -1225,9 +1229,9 @@ function App() {
                         </p>
                         
                         <div className="w-full bg-slate-50 dark:bg-gray-800/50 rounded-xl p-3 border border-slate-200 dark:border-gray-800/50 text-left mb-3">
-                          <a href="https://Code.com/TechyNisarg/CipherClip" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 text-sm text-slate-700 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-                            <Code className="w-4 h-4" />
-                            <span className="font-medium">@TechyNisarg/CipherClip</span>
+                          <a href="https://github.com/TechyNisarg/CipherClip" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 text-sm text-slate-700 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"></path><path d="M9 18c-4.51 2-5-2-7-2"></path></svg>
+                            <span className="font-medium">https://github.com/TechyNisarg/CipherClip</span>
                           </a>
                         </div>
                         
