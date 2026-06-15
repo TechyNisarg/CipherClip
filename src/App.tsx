@@ -542,7 +542,7 @@ function App() {
           </h1>
         </div>
         <div className="flex items-center gap-3">
-          <Tooltip text="View Encryption Details">
+          <Tooltip text="View Encryption Details" side="bottom">
             <button 
               onClick={() => setShowEncryptionModal(true)}
               className="flex items-center gap-2 text-sm text-emerald-400/80 bg-emerald-400/10 hover:bg-emerald-400/20 px-3 py-1.5 rounded-full border border-emerald-400/20 hover:border-emerald-400/40 transition-colors cursor-pointer select-none"
@@ -551,7 +551,7 @@ function App() {
               <span>E2E Encrypted</span>
             </button>
           </Tooltip>
-          <Tooltip text="Settings (Ctrl+I)">
+          <Tooltip text="Settings (Ctrl+I)" side="bottom">
             <button 
               onClick={() => setShowSettings(true)}
               className="p-2 hover:bg-slate-200 dark:hover:bg-gray-800 text-slate-500 dark:text-gray-400 rounded-xl transition-colors"
