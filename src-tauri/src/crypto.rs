@@ -14,6 +14,7 @@ const KEYRING_USER: &str = "local_device_key";
 pub struct CryptoState {
     cipher: RwLock<XChaCha20Poly1305>,
     legacy_cipher: RwLock<Aes256GcmSiv>,
+    raw_key: Vec<u8>,
 }
 
 impl CryptoState {
@@ -54,7 +55,12 @@ impl CryptoState {
         Ok(Self {
             cipher: RwLock::new(cipher),
             legacy_cipher: RwLock::new(legacy_cipher),
+            raw_key: key_bytes.clone(),
         })
+    }
+
+    pub fn get_key(&self) -> Result<Vec<u8>, String> {
+        Ok(self.raw_key.clone())
     }
 
     pub fn get_key_hex(app_dir: &std::path::PathBuf) -> Result<String, String> {

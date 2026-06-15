@@ -14,7 +14,13 @@ const TCP_PORT: u16 = 45556;
 const MAGIC_WORD: &[u8] = b"CIPHERCLIP_DISCOVER";
 
 pub struct NetworkManager {
-    peers: Arc<Mutex<HashMap<String, Instant>>>,
+    peers: Arc<Mutex<HashMap<String, (Instant, String)>>>,
+}
+
+#[derive(serde::Serialize)]
+pub struct PeerInfo {
+    ip: String,
+    name: String,
 }
 
 impl NetworkManager {
@@ -23,39 +29,66 @@ impl NetworkManager {
         crypto: Arc<CryptoState>,
         db: Arc<Mutex<Database>>,
     ) -> Self {
-        let peers = Arc::new(Mutex::new(HashMap::new()));
+        let peers: Arc<Mutex<HashMap<String, (Instant, String)>>> = Arc::new(Mutex::new(HashMap::new()));
 
         // 1. UDP Discovery Broadcaster
+        let crypto_for_bc = crypto.clone();
         thread::spawn(move || loop {
             if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
                 let _ = socket.set_broadcast(true);
                 let my_ip = local_ip().unwrap_or_else(|_| "127.0.0.1".parse().unwrap());
-
-                let msg = format!("CIPHERCLIP_DISCOVER:{}", my_ip);
-                let _ = socket.send_to(msg.as_bytes(), ("255.255.255.255", DISCOVERY_PORT));
+                let device_name = whoami::devicename().unwrap_or_else(|_| "Unknown Device".to_string());
+                
+                // Get hash of the sync key to only discover peers with the exact same key
+                if let Ok(raw_key) = crypto_for_bc.get_key() {
+                    use sha2::{Digest, Sha256};
+                    let mut hasher = Sha256::new();
+                    hasher.update(&raw_key);
+                    let key_hash = hex::encode(hasher.finalize());
+                    
+                    let msg = format!("CIPHERCLIP_DISCOVER:{}:{}:{}", key_hash, my_ip, device_name);
+                    let _ = socket.send_to(msg.as_bytes(), ("255.255.255.255", DISCOVERY_PORT));
+                }
             }
             thread::sleep(std::time::Duration::from_secs(5));
         });
 
         // 2. UDP Discovery Listener
         let peers_clone = peers.clone();
+        let crypto_for_listen = crypto.clone();
         thread::spawn(move || {
             if let Ok(socket) = UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
-                let mut buf = [0; 1024];
+                let mut buf = [0; 2048];
                 loop {
                     if let Ok((amt, _src)) = socket.recv_from(&mut buf) {
                         if amt > 19 && &buf[0..19] == MAGIC_WORD {
                             let msg = String::from_utf8_lossy(&buf[19..amt]);
-                            let ip = msg.trim_start_matches(':');
-
-                            let my_ip = local_ip()
-                                .unwrap_or_else(|_| "127.0.0.1".parse().unwrap())
-                                .to_string();
-                            if ip != my_ip {
-                                let mut p = peers_clone.lock().unwrap();
-                                p.insert(ip.to_string(), Instant::now());
-                                // Prune inactive peers
-                                p.retain(|_, time| time.elapsed().as_secs() < 15);
+                            let parts: Vec<&str> = msg.splitn(4, ':').collect();
+                            if parts.len() >= 3 { // MAGIC_WORD is removed, so parts are [ "", key_hash, ip, name ] ? Wait.
+                                // format is "CIPHERCLIP_DISCOVER:key_hash:ip:name"
+                                // so msg is ":key_hash:ip:name" because it stripped MAGIC_WORD
+                                if let Ok(raw_key) = crypto_for_listen.get_key() {
+                                    use sha2::{Digest, Sha256};
+                                    let mut hasher = Sha256::new();
+                                    hasher.update(&raw_key);
+                                    let expected_hash = hex::encode(hasher.finalize());
+                                    
+                                    let received_hash = parts[1];
+                                    if received_hash == expected_hash {
+                                        let ip = parts[2].to_string();
+                                        let name = if parts.len() > 3 { parts[3].to_string() } else { "Unknown Device".to_string() };
+                                        
+                                        let my_ip = local_ip()
+                                            .unwrap_or_else(|_| "127.0.0.1".parse().unwrap())
+                                            .to_string();
+                                        if ip != my_ip {
+                                            let mut p = peers_clone.lock().unwrap();
+                                            p.insert(ip, (Instant::now(), name));
+                                            // Prune inactive peers
+                                            p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -169,9 +202,17 @@ impl NetworkManager {
         }
     }
 
-    pub fn get_connected_peers(&self) -> Vec<String> {
+    pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
         let mut p = self.peers.lock().unwrap();
-        p.retain(|_, time| time.elapsed().as_secs() < 15);
-        p.keys().cloned().collect()
+        p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
+        p.iter().map(|(ip, (_, name))| PeerInfo {
+            ip: ip.clone(),
+            name: name.clone(),
+        }).collect()
+    }
+    
+    pub fn disconnect_peer(&self, ip: &str) {
+        let mut p = self.peers.lock().unwrap();
+        p.remove(ip);
     }
 }

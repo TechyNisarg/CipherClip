@@ -121,8 +121,14 @@ fn permanently_delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), St
 
 
 #[tauri::command]
-fn get_connected_peers(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+fn get_connected_peers(state: State<'_, AppState>) -> Result<Vec<crate::network::PeerInfo>, String> {
     Ok(state.network.get_connected_peers())
+}
+
+#[tauri::command]
+fn disconnect_peer(state: State<'_, AppState>, ip: String) -> Result<(), String> {
+    state.network.disconnect_peer(&ip);
+    Ok(())
 }
 
 #[tauri::command]
@@ -513,7 +519,8 @@ pub fn run() {
             has_master_password,
             toggle_clip_lock,
             open_image_preview,
-            get_connected_peers
+            get_connected_peers,
+            disconnect_peer
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

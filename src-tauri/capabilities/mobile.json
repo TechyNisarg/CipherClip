@@ -8,6 +8,8 @@
     "main"
   ],
   "permissions": [
-    "barcode-scanner:default"
+    "barcode-scanner:default",
+    "clipboard-manager:default",
+    "os:default"
   ]
 }

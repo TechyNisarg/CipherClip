@@ -33,7 +33,7 @@ function App() {
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [deleteLocked, setDeleteLocked] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
+  const [connectedPeers, setConnectedPeers] = useState<{ip: string, name: string}[]>([]);
   const [activeTab, setActiveTab] = useState<'recent' | 'pinned'>('recent');
   const [showTutorial, setShowTutorial] = useState(false);
   
@@ -223,7 +223,7 @@ function App() {
     
     const pollPeers = async () => {
       try {
-        const peers: string[] = await invoke("get_connected_peers");
+        const peers: {ip: string, name: string}[] = await invoke("get_connected_peers");
         setConnectedPeers(peers);
       } catch (error) {
         console.error(error);
@@ -348,7 +348,12 @@ function App() {
           ]);
         }
       } else {
-        await writeTextToClipboard(clip.content);
+        try {
+          await writeTextToClipboard(clip.content);
+        } catch (e) {
+          // Fallback for Windows if plugin fails
+          await navigator.clipboard.writeText(clip.content);
+        }
       }
       setCopiedId(clip.id);
       showToast("Copied to clipboard");
@@ -662,15 +667,6 @@ function App() {
           <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent tracking-tight">
             CipherClip
           </h1>
-          <button 
-            onClick={() => {
-              showToast("Refreshing clipboard...");
-              fetchHistory();
-            }}
-            className="p-1.5 ml-1 hover:bg-slate-200 dark:hover:bg-gray-800 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300 rounded-lg transition-colors cursor-pointer"
-          >
-            <RefreshCcw className="w-4 h-4" />
-          </button>
         </div>
         <div className="flex items-center gap-2">
           <button 
@@ -850,10 +846,11 @@ function App() {
                       Connected Devices ({connectedPeers.length})
                     </h4>
                     <ul className="space-y-1">
-                      {connectedPeers.map(ip => (
-                        <li key={ip} className="text-xs font-mono text-emerald-600 dark:text-emerald-500 flex items-center gap-2">
+                      {connectedPeers.map(peer => (
+                        <li key={peer.ip} className="text-xs font-mono text-emerald-600 dark:text-emerald-500 flex items-center gap-2">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                          {ip}
+                          <span className="truncate" title={peer.name}>{peer.name}</span>
+                          <span className="opacity-70 text-[10px] ml-1">({peer.ip})</span>
                         </li>
                       ))}
                     </ul>
@@ -958,10 +955,27 @@ function App() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {connectedPeers.map(ip => (
-                      <div key={ip} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-gray-800/50 rounded-xl border border-slate-100 dark:border-gray-800">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"></div>
-                        <div className="font-medium text-slate-700 dark:text-gray-300 font-mono text-sm">{ip}</div>
+                    {connectedPeers.map(peer => (
+                      <div key={peer.ip} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-gray-800/50 rounded-xl border border-slate-100 dark:border-gray-800 group">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"></div>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-slate-800 dark:text-gray-200 text-sm">{peer.name}</span>
+                            <span className="text-slate-500 dark:text-gray-400 font-mono text-xs">{peer.ip}</span>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            try {
+                              await invoke("disconnect_peer", { ip: peer.ip });
+                              setConnectedPeers(prev => prev.filter(p => p.ip !== peer.ip));
+                            } catch(e) {}
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                          title="Disconnect"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -1018,10 +1032,11 @@ function App() {
                           Connected Devices ({connectedPeers.length})
                         </h4>
                         <ul className="space-y-1">
-                          {connectedPeers.map(ip => (
-                            <li key={ip} className="text-xs font-mono text-emerald-600 dark:text-emerald-500 flex items-center gap-2">
+                          {connectedPeers.map(peer => (
+                            <li key={peer.ip} className="text-xs font-mono text-emerald-600 dark:text-emerald-500 flex items-center gap-2">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                              {ip}
+                              <span className="truncate" title={peer.name}>{peer.name}</span>
+                              <span className="opacity-70 text-[10px] ml-1">({peer.ip})</span>
                             </li>
                           ))}
                         </ul>
