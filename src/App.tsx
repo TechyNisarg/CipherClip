@@ -531,7 +531,7 @@ function App() {
   }
 
   return (
-    <div className={`min-h-screen ${isScanning ? 'bg-transparent' : 'bg-slate-50 dark:bg-[#0d1117]'} text-slate-800 dark:text-gray-200 p-6 pt-[max(1.5rem,env(safe-area-inset-top))] flex flex-col items-center transition-colors`}>
+    <div className={`min-h-screen ${isScanning ? 'bg-transparent' : 'bg-slate-50 dark:bg-[#0d1117]'} text-slate-800 dark:text-gray-200 p-6 ${isMobile ? 'pt-14' : 'pt-6'} flex flex-col items-center transition-colors`}>
       <header className="w-full max-w-xl flex justify-between items-center mb-6 pb-4 border-b border-slate-200 dark:border-gray-800 transition-all duration-300">
         <div className="flex items-center gap-3">
           <div className="bg-indigo-500/10 p-2 rounded-xl">
@@ -982,44 +982,48 @@ function App() {
                           </AnimatePresence>
                         </div>
 
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <label className="text-sm font-medium text-slate-700 dark:text-gray-300">Auto-Start on Boot</label>
-                            <button
-                              onClick={toggleAutoStart}
-                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoStart ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-gray-600'}`}
-                            >
-                              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoStart ? 'translate-x-4.5' : 'translate-x-1'}`} />
-                            </button>
-                          </div>
-                          <p className="text-xs text-slate-500 dark:text-gray-500">Launch CipherClip quietly in the background when your computer starts.</p>
-                        </div>
+                        { !isMobile && (
+                          <>
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <label className="text-sm font-medium text-slate-700 dark:text-gray-300">Auto-Start on Boot</label>
+                                <button
+                                  onClick={toggleAutoStart}
+                                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoStart ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-gray-600'}`}
+                                >
+                                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoStart ? 'translate-x-4.5' : 'translate-x-1'}`} />
+                                </button>
+                              </div>
+                              <p className="text-xs text-slate-500 dark:text-gray-500">Launch CipherClip quietly in the background when your computer starts.</p>
+                            </div>
 
-                        <div>
-                          <label className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-2 block">Global Shortcut</label>
-                          <p className="text-xs text-slate-500 dark:text-gray-500 mb-3">Click the box and press any key combination. Press <strong>Backspace</strong> to clear.</p>
-                          <div className="flex gap-2">
-                            <input 
-                              type="text" 
-                              value={shortcutInput}
-                              onChange={() => {}} // Controlled by onKeyDown
-                              onKeyDown={handleShortcutKeyDown}
-                              onBlur={() => {
-                                if (!shortcutInput.trim()) setShortcutInput(shortcut);
-                              }}
-                              placeholder="Press keys..."
-                              className="flex-1 bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-sm font-mono border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                            <button
-                              onClick={updateShortcut}
-                              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 ${
-                                shortcutSaved ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-indigo-500 hover:bg-indigo-600 text-white'
-                              }`}
-                            >
-                              {shortcutSaved ? <><Check className="w-4 h-4" /> Saved!</> : "Save"}
-                            </button>
-                          </div>
-                        </div>
+                            <div>
+                              <label className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-2 block">Global Shortcut</label>
+                              <p className="text-xs text-slate-500 dark:text-gray-500 mb-3">Click the box and press any key combination. Press <strong>Backspace</strong> to clear.</p>
+                              <div className="flex gap-2">
+                                <input 
+                                  type="text" 
+                                  value={shortcutInput}
+                                  onChange={() => {}} // Controlled by onKeyDown
+                                  onKeyDown={handleShortcutKeyDown}
+                                  onBlur={() => {
+                                    if (!shortcutInput.trim()) setShortcutInput(shortcut);
+                                  }}
+                                  placeholder="Press keys..."
+                                  className="flex-1 bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-sm font-mono border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                                <button
+                                  onClick={updateShortcut}
+                                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 ${
+                                    shortcutSaved ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-indigo-500 hover:bg-indigo-600 text-white'
+                                  }`}
+                                >
+                                  {shortcutSaved ? <><Check className="w-4 h-4" /> Saved!</> : "Save"}
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </>
                     )}
 

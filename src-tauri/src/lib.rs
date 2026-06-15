@@ -265,6 +265,35 @@ fn paste_to_active_window(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
+fn add_mobile_clip(state: State<'_, AppState>, text: String) -> Result<bool, String> {
+    use sha2::{Digest, Sha256};
+    
+    let payload = text.into_bytes();
+    let mut hasher = Sha256::new();
+    hasher.update(&payload);
+    let current_hash = hasher.finalize().to_vec();
+
+    let db_guard = state.db.lock().unwrap();
+    if let Some(encrypted) = db_guard.get_latest_hash().unwrap_or(None) {
+        if let Ok(decrypted) = state.crypto.decrypt(&encrypted) {
+            let mut h2 = Sha256::new();
+            h2.update(&decrypted);
+            if h2.finalize().to_vec() == current_hash {
+                return Ok(false); // Already exists
+            }
+        }
+    }
+
+    let encrypted_payload = state.crypto.encrypt(&payload).map_err(|e| e.to_string())?;
+    let limit = state.settings.get().history_limit;
+
+    db_guard.insert_clip("text", &encrypted_payload, limit).map_err(|e| e.to_string())?;
+    state.network.push_clip("text", &encrypted_payload);
+
+    Ok(true)
+}
+
+#[tauri::command]
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn paste_to_active_window(state: State<'_, AppState>) {
     state.ignore_next_update.store(true, Ordering::SeqCst);
@@ -438,6 +467,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_history,
+            add_mobile_clip,
             toggle_pin,
             delete_clip,
             get_settings,
