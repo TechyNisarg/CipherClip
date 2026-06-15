@@ -1,4 +1,5 @@
 use rusqlite::{Connection, OptionalExtension, Result as SqlResult};
+use sha2::{Sha256, Digest};
 use std::path::PathBuf;
 
 pub struct Database {
@@ -29,7 +30,8 @@ impl Database {
                 timestamp INTEGER NOT NULL,
                 pinned BOOLEAN NOT NULL DEFAULT 0,
                 is_deleted BOOLEAN NOT NULL DEFAULT 0,
-                is_locked BOOLEAN NOT NULL DEFAULT 0
+                is_locked BOOLEAN NOT NULL DEFAULT 0,
+                payload_hash TEXT
             )",
             (),
         )?;
@@ -47,6 +49,28 @@ impl Database {
             "ALTER TABLE clipboard_history ADD COLUMN is_locked BOOLEAN NOT NULL DEFAULT 0",
             (),
         );
+        let _ = conn.execute(
+            "ALTER TABLE clipboard_history ADD COLUMN payload_hash TEXT",
+            (),
+        );
+
+        // Perform migration for payload_hash
+        let rows = {
+            let mut stmt = conn.prepare("SELECT id, encrypted_payload FROM clipboard_history WHERE payload_hash IS NULL")?;
+            let rows: Result<Vec<(i64, Vec<u8>)>, _> = stmt.query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?.collect();
+            rows
+        };
+        
+        if let Ok(rows) = rows {
+            for (id, payload) in rows {
+                let mut hasher = Sha256::new();
+                hasher.update(&payload);
+                let hash = hex::encode(hasher.finalize());
+                let _ = conn.execute("UPDATE clipboard_history SET payload_hash = ?1 WHERE id = ?2", (hash, id));
+            }
+        }
 
         Ok(Self { conn })
     }
@@ -62,9 +86,13 @@ impl Database {
             .unwrap()
             .as_secs() as i64;
 
+        let mut hasher = Sha256::new();
+        hasher.update(encrypted_payload);
+        let hash = hex::encode(hasher.finalize());
+
         self.conn.execute(
-            "INSERT INTO clipboard_history (content_type, encrypted_payload, timestamp, pinned, is_deleted, is_locked) VALUES (?1, ?2, ?3, 0, 0, 0)",
-            (content_type, encrypted_payload, timestamp),
+            "INSERT INTO clipboard_history (content_type, encrypted_payload, timestamp, pinned, is_deleted, is_locked, payload_hash) VALUES (?1, ?2, ?3, 0, 0, 0, ?4)",
+            (content_type, encrypted_payload, timestamp, hash),
         )?;
 
         let new_id = self.conn.last_insert_rowid();
@@ -112,6 +140,31 @@ impl Database {
             (is_locked, id),
         )?;
         Ok(())
+    }
+
+    pub fn toggle_pin_by_hash(&self, hash: &str, pinned: bool) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE clipboard_history SET pinned = ?1 WHERE payload_hash = ?2",
+            (pinned, hash),
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_clip_by_hash(&self, hash: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE clipboard_history SET is_deleted = 1 WHERE payload_hash = ?1",
+            (hash,),
+        )?;
+        Ok(())
+    }
+
+    pub fn get_hash_by_id(&self, id: i64) -> SqlResult<Option<String>> {
+        let hash: Option<String> = self.conn.query_row(
+            "SELECT payload_hash FROM clipboard_history WHERE id = ?1",
+            (id,),
+            |row| row.get(0),
+        )?;
+        Ok(hash)
     }
 
     pub fn delete_clip(&self, id: i64) -> SqlResult<()> {

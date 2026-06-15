@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, Github } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
 import { type as osType } from '@tauri-apps/plugin-os';
@@ -34,6 +34,18 @@ function App() {
   const [deleteLocked, setDeleteLocked] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'recent' | 'pinned'>('recent');
+  const [showTutorial, setShowTutorial] = useState(false);
+  
+  useEffect(() => {
+    if (!localStorage.getItem('hasSeenTutorial')) {
+      setShowTutorial(true);
+    }
+  }, []);
+
+  const closeTutorial = () => {
+    localStorage.setItem('hasSeenTutorial', 'true');
+    setShowTutorial(false);
+  };
   
   const [deletedClips, setDeletedClips] = useState<ClipItem[]>([]);
   const [showRecycleBin, setShowRecycleBin] = useState(false);
@@ -205,6 +217,18 @@ function App() {
   useEffect(() => {
     fetchHistory();
     fetchSettings();
+    fetchSyncKey();
+    
+    const pollPeers = async () => {
+      try {
+        const peers: string[] = await invoke("get_connected_peers");
+        setConnectedPeers(peers);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+    pollPeers();
+    const peerInterval = setInterval(pollPeers, 5000);
 
     const unlisten = listen("clipboard-update", () => {
       fetchHistory();
@@ -246,6 +270,7 @@ function App() {
     setupFocusListener();
 
     return () => {
+      clearInterval(peerInterval);
       unlisten.then((f) => f());
       window.removeEventListener('keydown', handleKeyDown);
       if (unlistenFocusFn) unlistenFocusFn();
@@ -620,11 +645,11 @@ function App() {
           </Tooltip>
           <Tooltip text="View Encryption Details" side="bottom">
             <button 
-              onClick={() => setShowEncryptionModal(true)}
-              className="flex items-center gap-2 text-sm text-emerald-400/80 bg-emerald-400/10 hover:bg-emerald-400/20 px-3 py-1.5 rounded-full border border-emerald-400/20 hover:border-emerald-400/40 transition-colors cursor-pointer select-none"
+              onClick={() => setShowNetworkSync(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border cursor-pointer ${connectedPeers.length > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20' : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20'}`}
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>E2E Encrypted</span>
+              {connectedPeers.length > 0 ? `${connectedPeers.length} Device${connectedPeers.length > 1 ? 's' : ''} Connected` : "E2E Encrypted"}
             </button>
           </Tooltip>
           <Tooltip text="Settings (Ctrl+I)" side="bottom">
@@ -782,6 +807,23 @@ function App() {
                     When you pair a device using your Sync Key, the devices communicate directly with each other. No servers, no accounts, no cloud databases. If a payload is intercepted on your Wi-Fi, it is mathematically impossible to decrypt.
                   </p>
                 </div>
+                {connectedPeers.length > 0 && (
+                  <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-xl p-4 mt-2">
+                    <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-2 flex items-center gap-2">
+                      <Network className="w-4 h-4" />
+                      Connected Devices ({connectedPeers.length})
+                    </h4>
+                    <ul className="space-y-1">
+                      {connectedPeers.map(ip => (
+                        <li key={ip} className="text-xs font-mono text-emerald-600 dark:text-emerald-500 flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          {ip}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {networkSyncUI}
                 <button
                   onClick={() => setShowEncryptionModal(false)}
                   className="w-full mt-2 py-2.5 rounded-lg text-sm font-medium transition-colors bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20"
@@ -833,6 +875,22 @@ function App() {
                   </div>
                   <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/50 dark:bg-[#0d1117]/50 flex flex-col gap-4">
                     {networkSyncUI}
+                    {connectedPeers.length > 0 && (
+                      <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-xl p-4">
+                        <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-2 flex items-center gap-2">
+                          <Network className="w-4 h-4" />
+                          Connected Devices ({connectedPeers.length})
+                        </h4>
+                        <ul className="space-y-1">
+                          {connectedPeers.map(ip => (
+                            <li key={ip} className="text-xs font-mono text-emerald-600 dark:text-emerald-500 flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                              {ip}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <p className="text-xs text-slate-500 dark:text-gray-500 leading-relaxed text-center mt-2 px-2">
                       Scan the QR code with your other device or manually copy and paste the exact same <strong>Sync Key</strong> to pair them. Once paired on the same <strong>Wi-Fi or Mobile Hotspot</strong>, your clipboards will sync securely and automatically without any issues.
                     </p>
@@ -1111,6 +1169,13 @@ function App() {
                         <p className="text-sm text-slate-600 dark:text-gray-400 max-w-xs leading-relaxed mb-4">
                           A blazingly fast, mathematically secure, peer-to-peer clipboard manager built with Rust, Tauri, and React.
                         </p>
+                        
+                        <div className="w-full bg-slate-50 dark:bg-gray-800/50 rounded-xl p-3 border border-slate-200 dark:border-gray-800/50 text-left mb-3">
+                          <a href="https://github.com/TechyNisarg/CipherClip" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 text-sm text-slate-700 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                            <Github className="w-4 h-4" />
+                            <span className="font-medium">@TechyNisarg/CipherClip</span>
+                          </a>
+                        </div>
                         
                         <div className="w-full bg-slate-50 dark:bg-gray-800/50 rounded-xl p-3 border border-slate-200 dark:border-gray-800/50 text-left">
                           <p className="text-xs text-slate-500 dark:text-gray-500 mb-1">Architecture</p>

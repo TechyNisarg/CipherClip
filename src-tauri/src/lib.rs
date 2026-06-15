@@ -50,7 +50,16 @@ fn get_history(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, Str
 #[tauri::command]
 fn toggle_pin(state: State<'_, AppState>, id: i64, pinned: bool) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.toggle_pin(id, pinned).map_err(|e| e.to_string())
+    db.toggle_pin(id, pinned).map_err(|e| e.to_string())?;
+
+    if let Ok(Some(hash)) = db.get_hash_by_id(id) {
+        let event_str = if pinned { format!("PIN:{}", hash) } else { format!("UNPIN:{}", hash) };
+        if let Ok(encrypted_event) = state.crypto.encrypt(event_str.as_bytes()) {
+            state.network.push_clip("EVENT", &encrypted_event);
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -62,7 +71,16 @@ fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Res
 #[tauri::command]
 fn delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.delete_clip(id).map_err(|e| e.to_string())
+    db.delete_clip(id).map_err(|e| e.to_string())?;
+
+    if let Ok(Some(hash)) = db.get_hash_by_id(id) {
+        let event_str = format!("DELETE:{}", hash);
+        if let Ok(encrypted_event) = state.crypto.encrypt(event_str.as_bytes()) {
+            state.network.push_clip("EVENT", &encrypted_event);
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -99,6 +117,12 @@ fn restore_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
 fn permanently_delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.permanently_delete_clip(id).map_err(|e| e.to_string())
+}
+
+
+#[tauri::command]
+fn get_connected_peers(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    Ok(state.network.get_connected_peers())
 }
 
 #[tauri::command]
@@ -488,7 +512,8 @@ pub fn run() {
             verify_master_password,
             has_master_password,
             toggle_clip_lock,
-            open_image_preview
+            open_image_preview,
+            get_connected_peers
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

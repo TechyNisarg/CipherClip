@@ -1,7 +1,8 @@
 use crate::crypto::CryptoState;
 use crate::db::Database;
 use local_ip_address::local_ip;
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::time::Instant;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,7 @@ const TCP_PORT: u16 = 45556;
 const MAGIC_WORD: &[u8] = b"CIPHERCLIP_DISCOVER";
 
 pub struct NetworkManager {
-    peers: Arc<Mutex<HashSet<String>>>,
+    peers: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl NetworkManager {
@@ -22,7 +23,7 @@ impl NetworkManager {
         crypto: Arc<CryptoState>,
         db: Arc<Mutex<Database>>,
     ) -> Self {
-        let peers = Arc::new(Mutex::new(HashSet::new()));
+        let peers = Arc::new(Mutex::new(HashMap::new()));
 
         // 1. UDP Discovery Broadcaster
         thread::spawn(move || loop {
@@ -52,7 +53,9 @@ impl NetworkManager {
                                 .to_string();
                             if ip != my_ip {
                                 let mut p = peers_clone.lock().unwrap();
-                                p.insert(ip.to_string());
+                                p.insert(ip.to_string(), Instant::now());
+                                // Prune inactive peers
+                                p.retain(|_, time| time.elapsed().as_secs() < 15);
                             }
                         }
                     }
@@ -99,7 +102,28 @@ impl NetworkManager {
                             }
 
                             // Ensure it actually decrypts cleanly with our local key before saving
-                            if crypto_c.decrypt(&payload).is_ok() {
+                            if let Ok(decrypted) = crypto_c.decrypt(&payload) {
+                                if content_type == "EVENT" {
+                                    if let Ok(event_str) = String::from_utf8(decrypted) {
+                                        if let Ok(db_lock) = db_c.lock() {
+                                            if event_str.starts_with("PIN:") {
+                                                let hash = &event_str[4..];
+                                                let _ = db_lock.toggle_pin_by_hash(hash, true);
+                                                let _ = app_c.emit("clipboard-update", ());
+                                            } else if event_str.starts_with("UNPIN:") {
+                                                let hash = &event_str[6..];
+                                                let _ = db_lock.toggle_pin_by_hash(hash, false);
+                                                let _ = app_c.emit("clipboard-update", ());
+                                            } else if event_str.starts_with("DELETE:") {
+                                                let hash = &event_str[7..];
+                                                let _ = db_lock.delete_clip_by_hash(hash);
+                                                let _ = app_c.emit("clipboard-update", ());
+                                            }
+                                        }
+                                    }
+                                    return;
+                                }
+
                                 if let Ok(db_lock) = db_c.lock() {
                                     if let Ok(Some(latest)) = db_lock.get_latest_hash() {
                                         if latest == payload {
@@ -122,7 +146,7 @@ impl NetworkManager {
     }
 
     pub fn push_clip(&self, content_type: &str, encrypted_payload: &[u8]) {
-        let peers = self.peers.lock().unwrap().clone();
+        let peers: Vec<String> = self.peers.lock().unwrap().keys().cloned().collect();
         for peer_ip in peers {
             thread::spawn({
                 let ct = content_type.to_string();
@@ -143,5 +167,11 @@ impl NetworkManager {
                 }
             });
         }
+    }
+
+    pub fn get_connected_peers(&self) -> Vec<String> {
+        let mut p = self.peers.lock().unwrap();
+        p.retain(|_, time| time.elapsed().as_secs() < 15);
+        p.keys().cloned().collect()
     }
 }
