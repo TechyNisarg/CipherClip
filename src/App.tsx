@@ -70,6 +70,15 @@ function App() {
   const [passwordInput, setPasswordInput] = useState("");
   const [settingsTab, setSettingsTab] = useState<'general' | 'sync' | 'data' | 'about'>('general');
   const [toast, setToast] = useState<string | null>(null);
+  const [modalClickable, setModalClickable] = useState(true);
+
+  useEffect(() => {
+    if (showPasswordPrompt || showPasswordSetup || showConfirmEmpty || clipToDelete) {
+      setModalClickable(false);
+      const timer = setTimeout(() => setModalClickable(true), 350);
+      return () => clearTimeout(timer);
+    }
+  }, [showPasswordPrompt, showPasswordSetup, showConfirmEmpty, clipToDelete]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -624,10 +633,16 @@ function App() {
       <div className="w-full">
         <textarea
           value={syncKeyInput}
-          onChange={(e) => setSyncKeyInput(e.target.value)}
-          className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none mb-3 h-20 resize-none break-all"
-          placeholder="Paste a 64-character hex key here..."
+          onChange={(e) => {
+            const val = e.target.value.replace(/[^a-fA-F0-9]/g, '');
+            if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
+          }}
+          className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none mb-1 h-20 resize-none break-all"
+          placeholder="Paste another device's 64-character Sync Key here to pair them..."
         />
+        <p className="text-[10px] text-slate-500 dark:text-gray-500 mb-3 text-center">
+          Share this key with other devices, or paste theirs here to securely link them together.
+        </p>
         <div className="flex gap-2">
           <button
             onClick={async () => {
@@ -954,9 +969,20 @@ function App() {
                   <Network className="w-5 h-5 text-indigo-500" />
                   <h3 className="font-semibold text-slate-800 dark:text-gray-200">Connected Devices</h3>
                 </div>
-                <button onClick={() => setShowConnectedDevicesModal(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300">
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {isMobile && (
+                    <button
+                      onClick={handleScanQR}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-md text-[11px] font-medium transition-colors cursor-pointer"
+                    >
+                      <Scan className="w-3.5 h-3.5" />
+                      Scan QR
+                    </button>
+                  )}
+                  <button onClick={() => setShowConnectedDevicesModal(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
               <div className="p-4 max-h-[60vh] overflow-y-auto">
                 {connectedPeers.length === 0 ? (
@@ -1444,14 +1470,16 @@ function App() {
               </p>
               <div className="flex gap-3">
                 <button
+                  disabled={!modalClickable}
                   onClick={() => setShowConfirmEmpty(false)}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
+                  disabled={!modalClickable}
                   onClick={executeEmptyRecycleBin}
-                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20"
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20 disabled:opacity-50"
                 >
                   Yes, Empty It
                 </button>
@@ -1489,14 +1517,16 @@ function App() {
               </p>
               <div className="flex gap-3">
                 <button
+                  disabled={!modalClickable}
                   onClick={() => setClipToDelete(null)}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
+                  disabled={!modalClickable}
                   onClick={() => executeDelete(clipToDelete.id)}
-                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20"
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20 disabled:opacity-50"
                 >
                   Yes, Delete
                 </button>
@@ -1560,17 +1590,19 @@ function App() {
               />
               <div className="flex gap-3">
                 <button
+                  disabled={!modalClickable}
                   onClick={() => {
                     setShowPasswordSetup(false);
-                    setPendingLockId(null);
+                    setPasswordInput("");
                   }}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
+                  disabled={!modalClickable}
                   onClick={executeSetMasterPassword}
-                  className={`flex-1 px-4 py-2 text-white rounded-xl text-sm font-medium transition-colors ${hasMasterPassword ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-500 hover:bg-indigo-600'}`}
+                  className={`flex-1 px-4 py-2 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${hasMasterPassword ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-500 hover:bg-indigo-600'}`}
                 >
                   {hasMasterPassword ? "Remove" : "Set Password"}
                 </button>
@@ -1590,7 +1622,7 @@ function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className={`fixed inset-0 z-[60] flex ${isMobile ? 'items-start pt-[15vh]' : 'items-center'} justify-center p-4 bg-black/40 backdrop-blur-sm`}
-            onClick={() => setShowPasswordPrompt(null)}
+            onClick={() => modalClickable && setShowPasswordPrompt(null)}
           >
             <motion.div 
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
@@ -1611,33 +1643,26 @@ function App() {
               <input
                 type="password"
                 value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="Master Password"
                 autoFocus
-                onFocus={(e) => {
-                  // Ensure text isn't selected or focus lost during transitions
-                  const val = e.target.value;
-                  e.target.value = '';
-                  e.target.value = val;
+                onChange={(e) => setPasswordInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleUnlockClip();
                 }}
-                onKeyDown={(e) => e.key === 'Enter' && handleUnlockClip()}
-                className="w-full mb-6 bg-slate-100 dark:bg-gray-800 text-slate-800 dark:text-gray-200 px-4 py-2.5 rounded-xl text-sm border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
-                ref={(input) => {
-                  if (input) {
-                    setTimeout(() => input.focus(), 100);
-                  }
-                }}
+                className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none mb-6"
+                placeholder="Enter master password"
               />
               <div className="flex gap-3">
                 <button
+                  disabled={!modalClickable}
                   onClick={() => setShowPasswordPrompt(null)}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
+                  disabled={!modalClickable}
                   onClick={handleUnlockClip}
-                  className="flex-1 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-medium transition-colors"
+                  className="flex-1 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   Unlock
                 </button>
@@ -1646,7 +1671,6 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }
