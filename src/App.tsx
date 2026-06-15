@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
 import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
-import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
+import { writeText as writeTextToClipboard, readText } from '@tauri-apps/plugin-clipboard-manager';
 import { type as osType } from '@tauri-apps/plugin-os';
 
 const isMobile = osType() === 'android' || osType() === 'ios';
@@ -52,6 +52,7 @@ function App() {
   const [showRecycleBin, setShowRecycleBin] = useState(false);
   
   const [showNetworkSync, setShowNetworkSync] = useState(false);
+  const [showConnectedDevicesModal, setShowConnectedDevicesModal] = useState(false);
   const [syncKey, setSyncKey] = useState("");
   const [syncKeyInput, setSyncKeyInput] = useState("");
   const [alertModal, setAlertModal] = useState<{message: string, isError: boolean} | null>(null);
@@ -235,6 +236,14 @@ function App() {
       fetchHistory();
     });
 
+    const preventZoom = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchstart', preventZoom, { passive: false });
+    document.addEventListener('touchmove', preventZoom, { passive: false });
+
     const handleKeyDown = async (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         await invoke('hide_window');
@@ -249,11 +258,12 @@ function App() {
     let unlistenFocusFn: (() => void) | undefined;
     const setupFocusListener = async () => {
       const appWindow = getCurrentWindow();
-      const unlistenFocus = await appWindow.onFocusChanged(({ payload: focused }) => {
+      const unlistenFocus = await appWindow.onFocusChanged(async ({ payload: focused }) => {
         if (!focused) {
           setShowSettings(false);
           setShowRecycleBin(false);
           setShowNetworkSync(false);
+          setShowConnectedDevicesModal(false);
           setShowEncryptionModal(false);
           setShowConfirmEmpty(false);
           setShowConfirmClear(false);
@@ -264,6 +274,22 @@ function App() {
           setPasswordInput("");
           setAlertModal(null);
           window.scrollTo(0, 0);
+        } else {
+          // Sync Mobile Clipboard to PC when app gains focus
+          try {
+            const t = await osType();
+            if (t === 'android' || t === 'ios') {
+              const text = await readText();
+              if (text && text.trim().length > 0) {
+                const added = await invoke("add_mobile_clip", { text });
+                if (added) {
+                  fetchHistory();
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Mobile clipboard sync error:", e);
+          }
         }
       });
       unlistenFocusFn = unlistenFocus;
@@ -274,6 +300,8 @@ function App() {
       clearInterval(peerInterval);
       unlisten.then((f) => f());
       window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('touchstart', preventZoom);
+      document.removeEventListener('touchmove', preventZoom);
       if (unlistenFocusFn) unlistenFocusFn();
     };
   }, [fetchHistory]);
@@ -301,9 +329,10 @@ function App() {
     }
     
     try {
-      await invoke("set_ignore_next_update");
-
       if (clip.content_type === "image") {
+        try {
+          if (!isMobile) await invoke("set_ignore_next_update");
+        } catch(e) {}
         const canvas = document.createElement('canvas');
         const img = new Image();
         img.src = `data:image/webp;base64,${clip.content}`;
@@ -322,6 +351,7 @@ function App() {
         await writeTextToClipboard(clip.content);
       }
       setCopiedId(clip.id);
+      showToast("Copied to clipboard");
       setTimeout(() => setCopiedId(null), 2000);
 
       if (autoPaste) {
@@ -330,6 +360,7 @@ function App() {
       }
     } catch (err) {
       console.error("Failed to copy:", err);
+      setAlertModal({ message: "Failed to copy to clipboard", isError: true });
     }
   };
 
@@ -631,21 +662,19 @@ function App() {
           <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent tracking-tight">
             CipherClip
           </h1>
-          <Tooltip text="Refresh History" side="bottom">
-            <button 
-              onClick={() => {
-                showToast("Refreshing clipboard...");
-                fetchHistory();
-              }}
-              className="p-1.5 ml-1 hover:bg-slate-200 dark:hover:bg-gray-800 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300 rounded-lg transition-colors cursor-pointer"
-            >
-              <RefreshCcw className="w-4 h-4" />
-            </button>
-          </Tooltip>
+          <button 
+            onClick={() => {
+              showToast("Refreshing clipboard...");
+              fetchHistory();
+            }}
+            className="p-1.5 ml-1 hover:bg-slate-200 dark:hover:bg-gray-800 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300 rounded-lg transition-colors cursor-pointer"
+          >
+            <RefreshCcw className="w-4 h-4" />
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <button 
-            onClick={() => setShowNetworkSync(true)}
+            onClick={() => setShowConnectedDevicesModal(true)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border cursor-pointer ${connectedPeers.length > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20' : 'bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 border-slate-200 dark:border-gray-700'}`}
           >
             <MonitorSmartphone className="w-4 h-4" />
@@ -858,7 +887,9 @@ function App() {
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
               className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col items-center p-8 text-center max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
-              <img src="/logo.png" alt="CipherClip Logo" className="w-20 h-20 mb-6 rounded-3xl shadow-sm border border-slate-200/50 dark:border-gray-700/50" />
+              <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6 border border-indigo-500/20">
+                <MonitorSmartphone className="text-indigo-500 w-10 h-10" />
+              </div>
               <h2 className="text-2xl font-bold text-slate-800 dark:text-gray-100 mb-3">Welcome to CipherClip</h2>
               <p className="text-slate-600 dark:text-gray-400 mb-8 max-w-sm leading-relaxed">
                 The most secure, lightning-fast clipboard manager. 
@@ -893,6 +924,53 @@ function App() {
         )}
       </AnimatePresence>
 
+
+      <AnimatePresence>
+        {showConnectedDevicesModal && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4" 
+            onClick={() => setShowConnectedDevicesModal(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 10 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              exit={{ scale: 0.95, opacity: 0, y: 10 }} 
+              onClick={(e) => e.stopPropagation()} 
+              className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-4 border-b border-slate-100 dark:border-gray-800 flex justify-between items-center bg-slate-50 dark:bg-[#1e242c]">
+                <div className="flex items-center gap-2">
+                  <Network className="w-5 h-5 text-indigo-500" />
+                  <h3 className="font-semibold text-slate-800 dark:text-gray-200">Connected Devices</h3>
+                </div>
+                <button onClick={() => setShowConnectedDevicesModal(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-4 max-h-[60vh] overflow-y-auto">
+                {connectedPeers.length === 0 ? (
+                  <div className="text-center p-6">
+                    <MonitorSmartphone className="w-12 h-12 text-slate-300 dark:text-gray-700 mx-auto mb-3" />
+                    <p className="text-slate-500 dark:text-gray-400 text-sm">No devices connected on the local network.</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {connectedPeers.map(ip => (
+                      <div key={ip} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-gray-800/50 rounded-xl border border-slate-100 dark:border-gray-800">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"></div>
+                        <div className="font-medium text-slate-700 dark:text-gray-300 font-mono text-sm">{ip}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Settings Modal */}
       <AnimatePresence>
@@ -1521,7 +1599,7 @@ function Tooltip({ children, text, side = "top" }: { children: React.ReactNode, 
   return (
     <div className="relative group/tooltip flex items-center justify-center">
       {children}
-      <div className={`absolute ${positioning[side]} opacity-0 group-hover/tooltip:opacity-100 transition-opacity duration-200 pointer-events-none bg-slate-800 dark:bg-gray-100 text-white dark:text-slate-800 text-[11px] py-1 px-2 rounded-md whitespace-nowrap shadow-xl z-[100] font-medium`}>
+      <div className={`absolute ${positioning[side]} opacity-0 group-hover/tooltip:opacity-100 transition-opacity duration-200 delay-0 group-hover/tooltip:delay-[3000ms] pointer-events-none bg-slate-800 dark:bg-gray-100 text-white dark:text-slate-800 text-[11px] py-1 px-2 rounded-md whitespace-nowrap shadow-xl z-[100] font-medium`}>
         {text}
         <div className={`absolute w-0 h-0 border-[4px] border-transparent ${arrowPositioning[side]}`}></div>
       </div>
