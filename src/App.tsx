@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, Github } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, Code } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
 import { type as osType } from '@tauri-apps/plugin-os';
@@ -33,6 +33,7 @@ function App() {
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [deleteLocked, setDeleteLocked] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'recent' | 'pinned'>('recent');
   const [showTutorial, setShowTutorial] = useState(false);
   
@@ -836,6 +837,59 @@ function App() {
         )}
       </AnimatePresence>
 
+      {/* Tutorial Modal */}
+      <AnimatePresence>
+        {showTutorial && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col items-center p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6 border border-indigo-500/20">
+                <MonitorSmartphone className="text-indigo-500 w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-gray-100 mb-3">Welcome to CipherClip</h2>
+              <p className="text-slate-600 dark:text-gray-400 mb-8 max-w-sm leading-relaxed">
+                The most secure, lightning-fast clipboard manager. 
+                Keep your clips synced across devices, fully E2E encrypted on your local network.
+              </p>
+              
+              <div className="flex flex-col gap-4 w-full mb-8 text-left">
+                <div className="flex gap-4 items-start bg-slate-50 dark:bg-[#0d1117]/50 p-4 rounded-2xl border border-slate-100 dark:border-gray-800/50">
+                  <ShieldCheck className="w-6 h-6 text-emerald-500 mt-0.5 shrink-0" />
+                  <div>
+                    <h4 className="font-semibold text-slate-800 dark:text-gray-200">Local Network Sync</h4>
+                    <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">Connect your phone and PC by scanning a QR code. Clips sync instantly and securely over your Wi-Fi.</p>
+                  </div>
+                </div>
+                <div className="flex gap-4 items-start bg-slate-50 dark:bg-[#0d1117]/50 p-4 rounded-2xl border border-slate-100 dark:border-gray-800/50">
+                  <Key className="w-6 h-6 text-indigo-500 mt-0.5 shrink-0" />
+                  <div>
+                    <h4 className="font-semibold text-slate-800 dark:text-gray-200">Master Password</h4>
+                    <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">Set a master password to encrypt your history on-disk and lock sensitive clips.</p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={closeTutorial}
+                className="w-full py-3.5 rounded-xl text-sm font-semibold transition-all bg-indigo-500 hover:bg-indigo-600 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.98]"
+              >
+                Let's Get Started
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
       {/* Settings Modal */}
       <AnimatePresence>
         {showSettings && (
@@ -1171,8 +1225,8 @@ function App() {
                         </p>
                         
                         <div className="w-full bg-slate-50 dark:bg-gray-800/50 rounded-xl p-3 border border-slate-200 dark:border-gray-800/50 text-left mb-3">
-                          <a href="https://github.com/TechyNisarg/CipherClip" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 text-sm text-slate-700 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-                            <Github className="w-4 h-4" />
+                          <a href="https://Code.com/TechyNisarg/CipherClip" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 text-sm text-slate-700 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                            <Code className="w-4 h-4" />
                             <span className="font-medium">@TechyNisarg/CipherClip</span>
                           </a>
                         </div>
