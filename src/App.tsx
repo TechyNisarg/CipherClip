@@ -620,7 +620,10 @@ function App() {
                           if (id !== undefined) setPendingLockId(id);
                           setShowPasswordSetup(true);
                         }}
-                        onPreviewImage={(base64) => invoke('open_image_preview', { base64Data: base64 })}
+                        onPreviewImage={async (base64) => {
+                          showToast("Opening image in system viewer...");
+                          await invoke('open_image_preview', { base64Data: base64 });
+                        }}
                       />
                     ))}
                   </AnimatePresence>
