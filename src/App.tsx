@@ -5,8 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, QrCode } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
+import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
 import { type as osType } from '@tauri-apps/plugin-os';
 
 const isMobile = osType() === 'android' || osType() === 'ios';
@@ -142,6 +143,9 @@ function App() {
       setIsScanning(true);
       document.documentElement.style.backgroundColor = 'transparent';
       document.body.style.backgroundColor = 'transparent';
+
+      // Artificial delay so the user can orient the camera before it scans instantly
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
       const result = await scan({ windowed: true, formats: [Format.QRCode] });
       
@@ -289,7 +293,7 @@ function App() {
           ]);
         }
       } else {
-        await navigator.clipboard.writeText(clip.content);
+        await writeTextToClipboard(clip.content);
       }
       setCopiedId(clip.id);
       setTimeout(() => setCopiedId(null), 2000);
@@ -514,12 +518,73 @@ function App() {
     }
   }, [hasPinned, activeTab]);
 
+  const networkSyncUI = (
+    <div className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-xl p-4 shadow-sm flex flex-col items-center w-full">
+      <div className="w-full flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Key className="w-5 h-5 text-emerald-500" />
+          <label className="text-sm font-medium text-slate-700 dark:text-gray-300">
+            Device Sync Key
+          </label>
+        </div>
+        {isMobile && (
+          <button
+            onClick={handleScanQR}
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-md text-xs font-medium transition-colors cursor-pointer"
+          >
+            <Scan className="w-4 h-4" />
+            Scan QR
+          </button>
+        )}
+      </div>
+      
+      <div className="flex justify-center mb-4 p-4 bg-slate-50 dark:bg-gray-100 rounded-xl w-full">
+        {syncKeyInput.length === 64 ? (
+          <QRCodeSVG value={syncKeyInput} size={160} />
+        ) : (
+          <div className="w-[160px] h-[160px] flex items-center justify-center text-slate-400 text-xs text-center border-2 border-dashed border-slate-200 dark:border-gray-300 rounded-lg">
+            Enter valid 64-character key to generate QR code
+          </div>
+        )}
+      </div>
+      
+      <div className="w-full">
+        <textarea
+          value={syncKeyInput}
+          onChange={(e) => setSyncKeyInput(e.target.value)}
+          className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none mb-3 h-20 resize-none break-all"
+          placeholder="Paste a 64-character hex key here..."
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              await writeTextToClipboard(syncKey);
+              setCopiedKey(true);
+              setTimeout(() => setCopiedKey(false), 2000);
+            }}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors border cursor-pointer ${copiedKey ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20' : 'bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 border-slate-200 dark:border-gray-700'}`}
+          >
+            {copiedKey ? <span className="flex items-center justify-center gap-1"><Check className="w-4 h-4" /> Copied!</span> : "Copy"}
+          </button>
+          <button
+            onClick={updateSyncKey}
+            className="flex-1 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors shadow-md shadow-indigo-500/20 cursor-pointer"
+          >
+            Save Key
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const displayedClips = activeTab === 'pinned' ? clips.filter(c => c.pinned) : clips.filter(c => !c.pinned);
 
   if (isScanning) {
     return (
-      <div className="fixed inset-0 z-[9999] bg-transparent flex flex-col items-center justify-end pb-16">
-        <div className="w-64 h-64 border-2 border-emerald-500 border-dashed rounded-3xl mb-16 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+      <div className="fixed inset-0 z-[9999] bg-transparent flex flex-col items-center justify-center">
+        <div className="w-64 h-64 border-2 border-emerald-500 border-dashed rounded-3xl mb-8 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)] flex items-center justify-center">
+          <span className="text-white/80 font-medium text-sm drop-shadow-md">Align QR Code Here</span>
+        </div>
         <button 
           onClick={handleCancelScan}
           className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-full font-medium shadow-lg transition-transform active:scale-95"
@@ -542,6 +607,17 @@ function App() {
           </h1>
         </div>
         <div className="flex items-center gap-3">
+          <Tooltip text="Manual Sync Refresh" side="bottom">
+            <button 
+              onClick={() => {
+                showToast("Refreshing clipboard...");
+                fetchHistory();
+              }}
+              className="p-2 hover:bg-slate-200 dark:hover:bg-gray-800 text-slate-500 dark:text-gray-400 rounded-xl transition-colors cursor-pointer"
+            >
+              <RefreshCcw className="w-5 h-5" />
+            </button>
+          </Tooltip>
           <Tooltip text="View Encryption Details" side="bottom">
             <button 
               onClick={() => setShowEncryptionModal(true)}
@@ -756,62 +832,7 @@ function App() {
                     </div>
                   </div>
                   <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/50 dark:bg-[#0d1117]/50 flex flex-col gap-4">
-                    <div className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-xl p-4 shadow-sm flex flex-col items-center w-full">
-                      <div className="w-full flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                          <Key className="w-5 h-5 text-emerald-500" />
-                          <label className="text-sm font-medium text-slate-700 dark:text-gray-300">
-                            Device Sync Key
-                          </label>
-                        </div>
-                        {isMobile && (
-                          <button
-                            onClick={handleScanQR}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-md text-xs font-medium transition-colors"
-                          >
-                            <QrCode className="w-4 h-4" />
-                            Scan QR
-                          </button>
-                        )}
-                      </div>
-                      
-                      <div className="flex justify-center mb-4 p-4 bg-slate-50 dark:bg-gray-100 rounded-xl w-full">
-                        {syncKeyInput.length === 64 ? (
-                          <QRCodeSVG value={syncKeyInput} size={160} />
-                        ) : (
-                          <div className="w-[160px] h-[160px] flex items-center justify-center text-slate-400 text-xs text-center border-2 border-dashed border-slate-200 dark:border-gray-300 rounded-lg">
-                            Enter valid 64-character key to generate QR code
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="w-full">
-                        <textarea
-                          value={syncKeyInput}
-                          onChange={(e) => setSyncKeyInput(e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none mb-3 h-20 resize-none break-all"
-                          placeholder="Paste a 64-character hex key here..."
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(syncKey);
-                              setCopiedKey(true);
-                              setTimeout(() => setCopiedKey(false), 2000);
-                            }}
-                            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors border ${copiedKey ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20' : 'bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 border-slate-200 dark:border-gray-700'}`}
-                          >
-                            {copiedKey ? <span className="flex items-center justify-center gap-1"><Check className="w-4 h-4" /> Copied!</span> : "Copy"}
-                          </button>
-                          <button
-                            onClick={updateSyncKey}
-                            className="flex-1 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors shadow-md shadow-indigo-500/20"
-                          >
-                            Save Key
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    {networkSyncUI}
                     <p className="text-xs text-slate-500 dark:text-gray-500 leading-relaxed text-center mt-2 px-2">
                       Scan the QR code with your other device or manually copy and paste the exact same <strong>Sync Key</strong> to pair them. Once paired on the same <strong>Wi-Fi or Mobile Hotspot</strong>, your clipboards will sync securely and automatically without any issues.
                     </p>
@@ -933,7 +954,7 @@ function App() {
                         {/* Master Password */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <label className="text-sm font-medium text-slate-700 dark:text-gray-300">Master Password</label>
+                            <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-gray-300"><Key className="w-4 h-4 text-slate-400" /> Master Password</label>
                             {hasMasterPassword ? (
                               <button
                                 onClick={() => setShowPasswordSetup(true)}
@@ -1031,19 +1052,24 @@ function App() {
                     )}
 
                     {settingsTab === 'sync' && (
-                      <div>
-                        <label className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-2 block">Local Network Sync</label>
-                        <p className="text-xs text-slate-500 dark:text-gray-500 mb-3">Sync clips between your devices over Wi-Fi without any cloud servers using End-to-End Encryption.</p>
-                        <button
-                          onClick={() => {
-                            fetchSyncKey();
-                            setShowNetworkSync(true);
-                          }}
-                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-indigo-600 dark:text-indigo-400 rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-gray-700 flex items-center justify-center gap-2"
-                        >
-                          <Network className="w-4 h-4" />
-                          Configure Network Sync
-                        </button>
+                      <div className="flex flex-col gap-4">
+                        <div>
+                          <label className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-2 block">Local Network Sync</label>
+                          <p className="text-xs text-slate-500 dark:text-gray-500 mb-3">Sync clips between your devices over Wi-Fi without any cloud servers using End-to-End Encryption.</p>
+                          {!isMobile && (
+                            <button
+                              onClick={() => {
+                                fetchSyncKey();
+                                setShowNetworkSync(true);
+                              }}
+                              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-indigo-600 dark:text-indigo-400 rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-gray-700 flex items-center justify-center gap-2"
+                            >
+                              <Network className="w-4 h-4" />
+                              Configure Network Sync
+                            </button>
+                          )}
+                        </div>
+                        {isMobile && networkSyncUI}
                       </div>
                     )}
 
@@ -1230,7 +1256,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            className={`fixed inset-0 z-[60] flex ${isMobile ? 'items-start pt-[15vh]' : 'items-center'} justify-center p-4 bg-black/40 backdrop-blur-sm`}
             onClick={() => setShowPasswordSetup(false)}
           >
             <motion.div 
@@ -1291,7 +1317,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            className={`fixed inset-0 z-[60] flex ${isMobile ? 'items-start pt-[15vh]' : 'items-center'} justify-center p-4 bg-black/40 backdrop-blur-sm`}
             onClick={() => setShowPasswordPrompt(null)}
           >
             <motion.div 
@@ -1467,6 +1493,10 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                 disabled={isLoadingPreview}
                 onClick={async (e) => {
                   e.stopPropagation();
+                  if (clip.is_locked && isLocked) {
+                    requestUnlock(clip.id, 'unlock', false);
+                    return;
+                  }
                   setIsLoadingPreview(true);
                   try {
                     await onPreviewImage(clip.content);
@@ -1474,7 +1504,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                     setIsLoadingPreview(false);
                   }
                 }}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${isLoadingPreview ? 'text-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800'}`}
+                className={`${isMobile ? 'p-3' : 'p-1.5'} rounded-lg transition-colors cursor-pointer ${isLoadingPreview ? 'text-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800'}`}
               >
                 {isLoadingPreview ? <Loader2 className="w-4 h-4 animate-spin" /> : <Maximize2 className="w-4 h-4" />}
               </button>
@@ -1483,7 +1513,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
           <Tooltip text={clip.pinned ? "Unpin item" : "Pin item"}>
             <button
               onClick={() => togglePin(clip.id, clip.pinned)}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              className={`${isMobile ? 'p-3' : 'p-1.5'} rounded-lg transition-colors cursor-pointer ${
                 clip.pinned 
                 ? 'text-yellow-500 bg-yellow-50 dark:bg-yellow-500/10' 
                 : 'text-slate-400 hover:text-yellow-500 hover:bg-yellow-50 dark:text-gray-400 dark:hover:text-yellow-400 dark:hover:bg-yellow-500/10'
@@ -1503,7 +1533,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                   toggleLock(clip.id, clip.is_locked);
                 }
               }}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              className={`${isMobile ? 'p-3' : 'p-1.5'} rounded-lg transition-colors cursor-pointer ${
                 clip.is_locked 
                 ? 'text-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' 
                 : 'text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:text-gray-400 dark:hover:text-indigo-400 dark:hover:bg-indigo-500/10'
@@ -1521,16 +1551,14 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                   handleCopy(clip);
                 }
               }}
-              className="p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-500 dark:text-gray-400 dark:hover:text-indigo-400 rounded-lg transition-colors cursor-pointer"
-            >
+              className={`${isMobile ? 'p-3' : 'p-1.5'} hover:bg-indigo-50 dark:hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-500 dark:text-gray-400 dark:hover:text-indigo-400 rounded-lg transition-colors cursor-pointer`}>
               {copiedId === clip.id ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
             </button>
           </Tooltip>
           <Tooltip text="Delete from history">
             <button
               onClick={() => deleteClip(clip.id)}
-              className="p-1.5 hover:bg-red-50 dark:hover:bg-red-500/10 text-slate-400 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 rounded-lg transition-colors cursor-pointer"
-            >
+              className={`${isMobile ? 'p-3' : 'p-1.5'} hover:bg-red-50 dark:hover:bg-red-500/10 text-slate-400 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 rounded-lg transition-colors cursor-pointer`}>
               <Trash2 className="w-4 h-4" />
             </button>
           </Tooltip>
