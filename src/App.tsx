@@ -58,6 +58,7 @@ function App() {
   const [alertModal, setAlertModal] = useState<{message: string, isError: boolean} | null>(null);
   const [showEncryptionModal, setShowEncryptionModal] = useState(false);
   const [showConfirmEmpty, setShowConfirmEmpty] = useState(false);
+  const [clipToDelete, setClipToDelete] = useState<ClipItem | null>(null);
   const [limitSaved, setLimitSaved] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [autoStart, setAutoStart] = useState(false);
@@ -267,6 +268,7 @@ function App() {
           setShowEncryptionModal(false);
           setShowConfirmEmpty(false);
           setShowConfirmClear(false);
+          setClipToDelete(null);
           setDeleteLocked(false);
           setShowPasswordSetup(false);
           setShowPasswordPrompt(null);
@@ -381,11 +383,20 @@ function App() {
     }
   };
 
-  const deleteClip = async (id: number) => {
+  const deleteClip = async (clip: ClipItem) => {
+    if (clip.is_locked) {
+      setClipToDelete(clip);
+    } else {
+      executeDelete(clip.id);
+    }
+  };
+
+  const executeDelete = async (id: number) => {
     try {
       await invoke("delete_clip", { id });
       fetchHistory();
       if (showRecycleBin) fetchDeletedHistory();
+      setClipToDelete(null);
     } catch (err) {
       console.error("Failed to delete clip:", err);
     }
@@ -1450,6 +1461,51 @@ function App() {
         )}
       </AnimatePresence>
 
+      {/* Confirm Delete Locked Clip Modal */}
+      <AnimatePresence>
+        {clipToDelete && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            onClick={() => setClipToDelete(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+            >
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-red-600 dark:text-red-400" />
+                </div>
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-gray-100">Delete Locked Item?</h2>
+              </div>
+              <p className="text-sm text-slate-600 dark:text-gray-400 mb-6">
+                This item is locked. Are you sure you want to move it to the recycle bin?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setClipToDelete(null)}
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => executeDelete(clipToDelete.id)}
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20"
+                >
+                  Yes, Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Toast Notification */}
       <AnimatePresence>
         {toast && (
@@ -1628,7 +1684,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
   hasMasterPassword: boolean,
   handleCopy: (c: ClipItem, autoPaste?: boolean) => void, 
   togglePin: (id: number, pinned: boolean) => void, 
-  deleteClip: (id: number) => void,
+  deleteClip: (clip: ClipItem) => void,
   requestUnlock: (id: number, action: 'copy' | 'unlock', autoPaste?: boolean) => void,
   toggleLock: (id: number, locked: boolean) => void,
   requestSetup: (id?: number) => void,
@@ -1773,7 +1829,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
           </Tooltip>
           <Tooltip text="Delete from history">
             <button
-              onClick={() => deleteClip(clip.id)}
+              onClick={() => deleteClip(clip)}
               className={`${isMobile ? 'p-3' : 'p-1.5'} hover:bg-red-50 dark:hover:bg-red-500/10 text-slate-400 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 rounded-lg transition-colors cursor-pointer`}>
               <Trash2 className="w-4 h-4" />
             </button>
