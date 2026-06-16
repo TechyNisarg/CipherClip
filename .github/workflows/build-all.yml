@@ -87,6 +87,9 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npx tauri android init --ci
 
+      - name: copy custom icons
+        run: cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/
+
       - name: build tauri android
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
