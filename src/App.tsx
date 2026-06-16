@@ -942,6 +942,8 @@ function App() {
               )}
               
               <p className="text-slate-600 dark:text-gray-400 mb-6 max-w-sm leading-relaxed">
+                The most secure, lightning-fast clipboard manager. Keep your clips synced across devices, fully E2E encrypted on your local network.
+              </p>
               
               <div className="flex flex-col gap-4 w-full mb-8 text-left">
                 <div className="flex gap-4 items-start bg-slate-50 dark:bg-[#0d1117]/50 p-4 rounded-2xl border border-slate-100 dark:border-gray-800/50">
@@ -1041,7 +1043,6 @@ function App() {
                     ))}
                   </div>
                 )}
-              </div>
               </div>
             </motion.div>
           </motion.div>
