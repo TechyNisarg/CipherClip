@@ -180,7 +180,16 @@ function App() {
           setSyncKeyInput(result.content);
           await invoke("set_sync_key", { hexKey: result.content });
           setSyncKey(result.content);
-          setAlertModal({ message: "Successfully paired with your device! Clipboards will now sync.", isError: false });
+          setShowConnectedDevicesModal(false);
+          // Poll for peers immediately after setting key — peer will appear within one broadcast cycle (5s)
+          setTimeout(async () => {
+            try {
+              const peers: {ip: string, name: string}[] = await invoke("get_connected_peers");
+              setConnectedPeers(peers);
+            } catch(e) {}
+            setShowConnectedDevicesModal(true);
+          }, 6000);
+          setAlertModal({ message: "Sync key set! Make sure both devices are on the same Wi-Fi. Your PC should appear below within a few seconds.", isError: false });
         } else {
           setAlertModal({ message: "Invalid QR Code. Sync Key must be 64 characters long.", isError: true });
         }
@@ -1033,7 +1042,6 @@ function App() {
               onClick={(e) => e.stopPropagation()} 
               className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col relative"
             >
-              <button onClick={() => setShowConnectedDevicesModal(false)} className="absolute top-4 right-4 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors z-10"><X className="w-5 h-5" /></button>
               <div className="p-4 border-b border-slate-100 dark:border-gray-800 flex justify-between items-center bg-slate-50 dark:bg-[#1e242c]">
                 <div className="flex items-center gap-2">
                   <Network className="w-5 h-5 text-indigo-500" />
@@ -1049,10 +1057,14 @@ function App() {
                       Scan QR
                     </button>
                   )}
+                  <button onClick={() => setShowConnectedDevicesModal(false)} className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
               <div className="p-4 max-h-[60vh] overflow-y-auto">
-                <div className="flex flex-col mb-6 w-full">
+                {!isMobile && (
+                <div className="flex flex-col mb-4 w-full">
                   <button 
                     onClick={() => setShowPairing(!showPairing)}
                     className="flex items-center justify-between p-3 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl transition-colors font-medium border border-indigo-100 dark:border-indigo-500/20 mb-2"
@@ -1096,7 +1108,17 @@ function App() {
                     )}
                   </AnimatePresence>
                 </div>
+                )}
 
+                {isMobile && (
+                  <button
+                    onClick={handleScanQR}
+                    className="flex items-center justify-center gap-2 w-full p-3 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl transition-colors font-medium border border-indigo-100 dark:border-indigo-500/20 mb-4"
+                  >
+                    <Scan className="w-5 h-5" />
+                    <span>Scan QR Code to Connect</span>
+                  </button>
+                )}
                 {connectedPeers.length === 0 ? (
                   <div className="text-center p-6">
                     <MonitorSmartphone className="w-12 h-12 text-slate-300 dark:text-gray-700 mx-auto mb-3" />
