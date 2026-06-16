@@ -5,9 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
-import { writeText as writeTextToClipboard, readText } from '@tauri-apps/plugin-clipboard-manager';
+import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { type as osType } from '@tauri-apps/plugin-os';
 
 const isMobile = osType() === 'android' || osType() === 'ios';
@@ -53,6 +53,7 @@ function App() {
   
   const [showNetworkSync, setShowNetworkSync] = useState(false);
   const [showConnectedDevicesModal, setShowConnectedDevicesModal] = useState(false);
+  const [showPairing, setShowPairing] = useState(false);
   const [syncKey, setSyncKey] = useState("");
   const [syncKeyInput, setSyncKeyInput] = useState("");
   const [alertModal, setAlertModal] = useState<{message: string, isError: boolean} | null>(null);
@@ -350,15 +351,20 @@ function App() {
         const img = new Image();
         img.src = `data:image/webp;base64,${clip.content}`;
         await new Promise((r) => { img.onload = r; });
-        canvas.width = img.width;
         canvas.height = img.height;
         canvas.getContext('2d')?.drawImage(img, 0, 0);
         
         const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
         if (pngBlob) {
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/png': pngBlob })
-          ]);
+          try {
+            const arrayBuffer = await pngBlob.arrayBuffer();
+            await writeImage(new Uint8Array(arrayBuffer));
+          } catch (e) {
+            console.error("Plugin writeImage failed, falling back to navigator", e);
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': pngBlob })
+            ]);
+          }
         }
       } else {
         try {
@@ -930,14 +936,49 @@ function App() {
               <h2 className="text-2xl font-bold text-slate-800 dark:text-gray-100 mb-3">Connected Devices</h2>
               
               {!isMobile && (
-                <div className="flex flex-col items-center mb-6 bg-slate-50 dark:bg-gray-800/50 p-4 rounded-2xl w-full border border-slate-100 dark:border-gray-800">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-gray-200 mb-3">Pair a new device</p>
-                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 dark:border-gray-700 mb-2">
-                    <QRCodeSVG value={syncKey} size={140} level="H" includeMargin={false} />
-                  </div>
-                  <p className="text-xs text-center text-slate-500 dark:text-gray-400 max-w-[250px]">
-                    Scan this QR code from the CipherClip mobile app.
-                  </p>
+                <div className="flex flex-col mb-6 w-full">
+                  <button 
+                    onClick={() => setShowPairing(!showPairing)}
+                    className="flex items-center justify-between p-3 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl transition-colors font-medium border border-indigo-100 dark:border-indigo-500/20"
+                  >
+                    <div className="flex items-center gap-2">
+                      <QrCode className="w-5 h-5" />
+                      <span>Connect a device</span>
+                    </div>
+                    {showPairing ? <Maximize2 className="w-4 h-4 rotate-45" /> : <Plus className="w-4 h-4" />}
+                  </button>
+
+                  <AnimatePresence>
+                    {showPairing && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="flex flex-col items-center bg-slate-50 dark:bg-gray-800/50 p-4 rounded-xl w-full border border-slate-100 dark:border-gray-800 mt-2">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-gray-200 mb-3">Scan with Mobile App</p>
+                          <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 dark:border-gray-700 mb-4">
+                            <QRCodeSVG value={syncKey} size={140} level="H" includeMargin={false} />
+                          </div>
+                          
+                          <div className="w-full bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-700 rounded-lg p-3 text-center cursor-pointer group hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors"
+                            onClick={async () => {
+                              try {
+                                await writeTextToClipboard(syncKey);
+                              } catch(e) {
+                                await navigator.clipboard.writeText(syncKey);
+                              }
+                              showToast("Sync key copied!");
+                            }}
+                          >
+                            <div className="text-xs text-slate-500 dark:text-gray-400 mb-1">Or copy device key</div>
+                            <div className="text-sm font-mono text-slate-700 dark:text-gray-300 break-all">{syncKey}</div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
               
@@ -1580,7 +1621,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className={`fixed inset-0 z-[60] flex ${isMobile ? 'items-start pt-[15vh]' : 'items-center'} justify-center p-4 bg-black/40 backdrop-blur-sm`}
+            className={`fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm`}
             
           >
             <motion.div 
@@ -1641,7 +1682,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className={`fixed inset-0 z-[60] flex ${isMobile ? 'items-start pt-[15vh]' : 'items-center'} justify-center p-4 bg-black/40 backdrop-blur-sm`}
+            className={`fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm`}
             
           >
             <motion.div 
