@@ -4,14 +4,13 @@ use local_ip_address::local_ip;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, UdpSocket};
+use std::net::{TcpListener, TcpStream, UdpSocket, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::Emitter;
 
 const DISCOVERY_PORT: u16 = 45555;
 const TCP_PORT: u16 = 45556;
-const MAGIC_WORD: &[u8] = b"CIPHERCLIP_DISCOVER";
 
 pub struct NetworkManager {
     peers: Arc<Mutex<HashMap<String, (Instant, String)>>>,
@@ -22,6 +21,27 @@ pub struct NetworkManager {
 pub struct PeerInfo {
     ip: String,
     name: String,
+}
+
+/// Get the local IP, trying multiple strategies for reliability on Android/hotspot
+fn get_my_ip() -> String {
+    // Try the local_ip crate first
+    if let Ok(ip) = local_ip() {
+        let ip_str = ip.to_string();
+        if ip_str != "127.0.0.1" {
+            return ip_str;
+        }
+    }
+    // Fallback: connect to a public IP (doesn't actually send data) to discover local interface
+    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        // Connect to Google's DNS — this doesn't send packets, just picks the right interface
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                return addr.ip().to_string();
+            }
+        }
+    }
+    "127.0.0.1".to_string()
 }
 
 impl NetworkManager {
@@ -35,10 +55,19 @@ impl NetworkManager {
 
         // 1. UDP Discovery Broadcaster
         let crypto_for_bc = crypto.clone();
-        thread::spawn(move || loop {
-            if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
-                let _ = socket.set_broadcast(true);
-                let my_ip = local_ip().unwrap_or_else(|_| "127.0.0.1".parse().unwrap());
+        thread::spawn(move || {
+            // Create socket once outside the loop
+            let socket = match UdpSocket::bind("0.0.0.0:0") {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("Failed to bind broadcaster socket: {}", e);
+                    return;
+                }
+            };
+            let _ = socket.set_broadcast(true);
+
+            loop {
+                let my_ip = get_my_ip();
                 let mut device_name = whoami::devicename().unwrap_or_else(|_| "Unknown Device".to_string());
                 if device_name.to_lowercase() == "unknown" || device_name.to_lowercase() == "localhost" || device_name.trim().is_empty() {
                     device_name = "Mobile Device".to_string();
@@ -52,10 +81,24 @@ impl NetworkManager {
                     let key_hash = hex::encode(hasher.finalize());
                     
                     let msg = format!("CIPHERCLIP_DISCOVER:{}:{}:{}", key_hash, my_ip, device_name);
-                    let _ = socket.send_to(msg.as_bytes(), ("255.255.255.255", DISCOVERY_PORT));
+                    let msg_bytes = msg.as_bytes();
+
+                    // Send to global broadcast (works on most networks)
+                    let _ = socket.send_to(msg_bytes, ("255.255.255.255", DISCOVERY_PORT));
+
+                    // Also try common hotspot subnet broadcasts for reliability
+                    // Mobile hotspot typically uses 192.168.x.255
+                    if let Ok(ip) = my_ip.parse::<std::net::Ipv4Addr>() {
+                        let octets = ip.octets();
+                        // Subnet broadcast for /24 (most common for hotspot and home WiFi)
+                        let subnet_broadcast = format!("{}.{}.{}.255", octets[0], octets[1], octets[2]);
+                        if subnet_broadcast != "255.255.255.255" {
+                            let _ = socket.send_to(msg_bytes, (subnet_broadcast.as_str(), DISCOVERY_PORT));
+                        }
+                    }
                 }
+                thread::sleep(std::time::Duration::from_secs(3)); // Broadcast every 3s for faster discovery
             }
-            thread::sleep(std::time::Duration::from_secs(5));
         });
 
         // 2. UDP Discovery Listener
@@ -63,39 +106,59 @@ impl NetworkManager {
         let blocked_ips_clone = blocked_ips.clone();
         let crypto_for_listen = crypto.clone();
         thread::spawn(move || {
-            if let Ok(socket) = UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
-                let mut buf = [0; 2048];
-                loop {
-                    if let Ok((amt, _src)) = socket.recv_from(&mut buf) {
-                        if amt > 19 && &buf[0..19] == MAGIC_WORD {
-                            let msg = String::from_utf8_lossy(&buf[19..amt]);
-                            let parts: Vec<&str> = msg.splitn(4, ':').collect();
-                            if parts.len() >= 3 { // MAGIC_WORD is removed, so parts are [ "", key_hash, ip, name ] ? Wait.
-                                // format is "CIPHERCLIP_DISCOVER:key_hash:ip:name"
-                                // so msg is ":key_hash:ip:name" because it stripped MAGIC_WORD
-                                if let Ok(raw_key) = crypto_for_listen.get_key() {
-                                    use sha2::{Digest, Sha256};
-                                    let mut hasher = Sha256::new();
-                                    hasher.update(&raw_key);
-                                    let expected_hash = hex::encode(hasher.finalize());
+            let socket = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
+                Ok(s) => {
+                    // Allow multiple binds to the same port (important for Android)
+                    let _ = s.set_broadcast(true);
+                    s
+                }
+                Err(e) => {
+                    log::error!("Failed to bind discovery listener on port {}: {}", DISCOVERY_PORT, e);
+                    return;
+                }
+            };
+
+            let mut buf = [0; 2048];
+            let prefix = b"CIPHERCLIP_DISCOVER:";
+            let prefix_len = prefix.len(); // 20 bytes including the colon
+
+            loop {
+                if let Ok((amt, src_addr)) = socket.recv_from(&mut buf) {
+                    // Check for our protocol prefix (CIPHERCLIP_DISCOVER:)
+                    if amt > prefix_len && &buf[0..prefix_len] == prefix {
+                        let msg = String::from_utf8_lossy(&buf[prefix_len..amt]);
+                        let parts: Vec<&str> = msg.splitn(3, ':').collect();
+                        if parts.len() >= 2 {
+                            if let Ok(raw_key) = crypto_for_listen.get_key() {
+                                use sha2::{Digest, Sha256};
+                                let mut hasher = Sha256::new();
+                                hasher.update(&raw_key);
+                                let expected_hash = hex::encode(hasher.finalize());
+                                
+                                let received_hash = parts[0]; // key_hash
+                                if received_hash == expected_hash {
+                                    let ip = parts[1].to_string(); // ip from the message
+                                    let name = if parts.len() > 2 { parts[2].to_string() } else { "Unknown Device".to_string() };
                                     
-                                    let received_hash = parts[1];
-                                    if received_hash == expected_hash {
-                                        let ip = parts[2].to_string();
-                                        let name = if parts.len() > 3 { parts[3].to_string() } else { "Unknown Device".to_string() };
-                                        
-                                        let my_ip = local_ip()
-                                            .unwrap_or_else(|_| "127.0.0.1".parse().unwrap())
-                                            .to_string();
-                                        if ip != my_ip {
-                                            let mut p = peers_clone.lock().unwrap();
-                                            let blocked = blocked_ips_clone.lock().unwrap();
-                                            if !blocked.contains(&ip) {
-                                                p.insert(ip, (Instant::now(), name));
-                                            }
-                                            // Prune inactive peers
-                                            p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
+                                    // Use the source address from the packet as the actual peer IP
+                                    // This is more reliable than the IP reported in the message,
+                                    // especially on NAT/hotspot setups
+                                    let actual_peer_ip = match src_addr {
+                                        SocketAddr::V4(addr) => addr.ip().to_string(),
+                                        SocketAddr::V6(addr) => addr.ip().to_string(),
+                                    };
+
+                                    let my_ip = get_my_ip();
+                                    // Filter out our own broadcasts
+                                    if actual_peer_ip != my_ip && ip != my_ip {
+                                        let mut p = peers_clone.lock().unwrap();
+                                        let blocked = blocked_ips_clone.lock().unwrap();
+                                        if !blocked.contains(&actual_peer_ip) {
+                                            // Use actual_peer_ip (from packet source) for TCP connections
+                                            p.insert(actual_peer_ip, (Instant::now(), name));
                                         }
+                                        // Prune inactive peers (not seen in 15 seconds)
+                                        p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
                                     }
                                 }
                             }
@@ -212,7 +275,8 @@ impl NetworkManager {
     }
 
     pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
-        let mut p = self.peers.lock().unwrap(); p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
+        let mut p = self.peers.lock().unwrap();
+        p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
         p.iter()
             .map(|(ip, (_, name))| PeerInfo {
                 ip: ip.clone(),

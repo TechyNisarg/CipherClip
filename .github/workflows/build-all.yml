@@ -87,6 +87,20 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npx tauri android init --ci
 
+      - name: Add Android network permissions
+        run: |
+          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          # Add network permissions required for UDP discovery and clipboard sync
+          sed -i 's|<uses-permission android:name="android.permission.INTERNET"/>|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>\n    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>|' "$MANIFEST"
+          # If INTERNET permission doesn't exist, add all permissions before </manifest>
+          if ! grep -q "ACCESS_NETWORK_STATE" "$MANIFEST"; then
+            sed -i 's|</manifest>|    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>\n    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>\n</manifest>|' "$MANIFEST"
+          fi
+          # Also enable cleartext traffic for local network TCP
+          sed -i 's|android:allowBackup="true"|android:allowBackup="true" android:usesCleartextTraffic="true"|' "$MANIFEST"
+          echo "--- Final AndroidManifest.xml ---"
+          cat "$MANIFEST"
+
       - name: copy custom icons
         run: cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/
 
