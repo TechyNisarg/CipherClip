@@ -262,6 +262,10 @@ function App() {
         e.preventDefault();
         setShowSettings(prev => !prev);
       }
+      if (e.ctrlKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        setShowConnectedDevicesModal(true);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
 
@@ -332,7 +336,7 @@ function App() {
   const handleCopy = async (clip: ClipItem, autoPaste: boolean = false, isUnlocked: boolean = false) => {
     if (clip.is_locked && !isUnlocked) {
       if (!hasMasterPassword) {
-        setShowPasswordSetup(true);
+        setTimeout(() => setShowPasswordSetup(true), 100);
         return;
       }
       setShowPasswordPrompt({ clipId: clip.id, isAutoPaste: autoPaste, action: 'copy' });
@@ -630,16 +634,49 @@ function App() {
         )}
       </div>
       
-      <div className="w-full">
-        <textarea
-          value={syncKeyInput}
-          onChange={(e) => {
-            const val = e.target.value.replace(/[^a-fA-F0-9]/g, '');
-            if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
-          }}
-          className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none mb-1 h-20 resize-none break-all"
-          placeholder="Paste another device's 64-character Sync Key here to pair them..."
-        />
+      <div className="w-full relative">
+        <div 
+          className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 dark:border-gray-700 mb-2 h-20 overflow-y-auto break-all selectable-text select-all"
+        >
+          {syncKeyInput || <span className="text-slate-400">Paste 64-character Sync Key here...</span>}
+        </div>
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={async () => {
+              try {
+                const text = await readText();
+                if (text) {
+                  const val = text.replace(/[^a-fA-F0-9]/g, '');
+                  if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
+                } else {
+                  // Fallback for Windows if plugin fails
+                  const clipboardText = await navigator.clipboard.readText();
+                  if (clipboardText) {
+                    const val = clipboardText.replace(/[^a-fA-F0-9]/g, '');
+                    if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
+                  }
+                }
+              } catch(e) {
+                try {
+                  const clipboardText = await navigator.clipboard.readText();
+                  if (clipboardText) {
+                    const val = clipboardText.replace(/[^a-fA-F0-9]/g, '');
+                    if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
+                  }
+                } catch(err) {}
+              }
+            }}
+            className="flex-1 py-1.5 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 text-slate-700 dark:text-gray-300 rounded text-xs font-medium transition-colors"
+          >
+            Paste Key
+          </button>
+          <button
+            onClick={() => setSyncKeyInput("")}
+            className="flex-1 py-1.5 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 text-slate-700 dark:text-gray-300 rounded text-xs font-medium transition-colors"
+          >
+            Clear
+          </button>
+        </div>
         <p className="text-[10px] text-slate-500 dark:text-gray-500 mb-3 text-center">
           Share this key with other devices, or paste theirs here to securely link them together.
         </p>
@@ -764,12 +801,12 @@ function App() {
                         togglePin={togglePin} 
                         deleteClip={deleteClip} 
                         requestUnlock={(clipId, action, autoPaste) => {
-                          setShowPasswordPrompt({ clipId, isAutoPaste: autoPaste || false, action });
+                          setTimeout(() => setShowPasswordPrompt({ clipId, isAutoPaste: autoPaste || false, action }), 100);
                         }}
                         toggleLock={toggleLock}
                         requestSetup={(id) => {
                           if (id !== undefined) setPendingLockId(id);
-                          setShowPasswordSetup(true);
+                          setTimeout(() => setShowPasswordSetup(true), 100);
                         }}
                         onPreviewImage={async (base64) => {
                           showToast("Opening image in system viewer...");
@@ -1008,7 +1045,7 @@ function App() {
                               setConnectedPeers(prev => prev.filter(p => p.ip !== peer.ip));
                             } catch(e) {}
                           }}
-                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors md:opacity-0 md:group-hover:opacity-100 opacity-100"
                           title="Disconnect"
                         >
                           <X className="w-4 h-4" />
@@ -1018,6 +1055,19 @@ function App() {
                   </div>
                 )}
               </div>
+              {!isMobile && (
+                <div className="px-6 pb-6 pt-2">
+                  <div className="border-t border-slate-100 dark:border-gray-800 pt-4 flex flex-col items-center">
+                    <p className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-3">Pair a new device</p>
+                    <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 dark:border-gray-800 mb-3">
+                      <QRCodeSVG value={syncKey} size={140} level="H" includeMargin={false} />
+                    </div>
+                    <p className="text-xs text-center text-slate-500 dark:text-gray-400 max-w-[250px]">
+                      Scan this QR code from the CipherClip mobile app to sync clipboards instantly.
+                    </p>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -1121,7 +1171,7 @@ function App() {
                       <div className="flex flex-col gap-3">
                         {deletedClips.map(clip => (
                           <div key={clip.id} className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-lg p-3 shadow-sm">
-                            <div className="text-xs text-slate-600 dark:text-gray-300 mb-2 truncate font-mono">
+                            <div className="text-xs text-slate-600 dark:text-gray-300 mb-2 truncate font-mono selectable-text">
                               {clip.content_type === "image" ? "[Image]" : clip.content.substring(0, 150)}
                             </div>
                             <div className="flex justify-between items-center">
@@ -1470,16 +1520,14 @@ function App() {
               </p>
               <div className="flex gap-3">
                 <button
-                  disabled={!modalClickable}
                   onClick={() => setShowConfirmEmpty(false)}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  disabled={!modalClickable}
                   onClick={executeEmptyRecycleBin}
-                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20 disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20"
                 >
                   Yes, Empty It
                 </button>
@@ -1517,16 +1565,14 @@ function App() {
               </p>
               <div className="flex gap-3">
                 <button
-                  disabled={!modalClickable}
                   onClick={() => setClipToDelete(null)}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  disabled={!modalClickable}
                   onClick={() => executeDelete(clipToDelete.id)}
-                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20 disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20"
                 >
                   Yes, Delete
                 </button>
@@ -1559,7 +1605,7 @@ function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className={`fixed inset-0 z-[60] flex ${isMobile ? 'items-start pt-[15vh]' : 'items-center'} justify-center p-4 bg-black/40 backdrop-blur-sm`}
-            onClick={() => setShowPasswordSetup(false)}
+            
           >
             <motion.div 
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
@@ -1590,19 +1636,17 @@ function App() {
               />
               <div className="flex gap-3">
                 <button
-                  disabled={!modalClickable}
                   onClick={() => {
                     setShowPasswordSetup(false);
                     setPasswordInput("");
                   }}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  disabled={!modalClickable}
                   onClick={executeSetMasterPassword}
-                  className={`flex-1 px-4 py-2 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${hasMasterPassword ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-500 hover:bg-indigo-600'}`}
+                  className={`flex-1 px-4 py-2 text-white rounded-xl text-sm font-medium transition-colors ${hasMasterPassword ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-500 hover:bg-indigo-600'}`}
                 >
                   {hasMasterPassword ? "Remove" : "Set Password"}
                 </button>
@@ -1622,7 +1666,7 @@ function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className={`fixed inset-0 z-[60] flex ${isMobile ? 'items-start pt-[15vh]' : 'items-center'} justify-center p-4 bg-black/40 backdrop-blur-sm`}
-            onClick={() => modalClickable && setShowPasswordPrompt(null)}
+            
           >
             <motion.div 
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
@@ -1653,16 +1697,14 @@ function App() {
               />
               <div className="flex gap-3">
                 <button
-                  disabled={!modalClickable}
                   onClick={() => setShowPasswordPrompt(null)}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  disabled={!modalClickable}
                   onClick={handleUnlockClip}
-                  className="flex-1 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-medium transition-colors"
                 >
                   Unlock
                 </button>
@@ -1764,7 +1806,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
               </div>
             </Tooltip>
           ) : (
-            <p className="text-sm font-mono whitespace-pre-wrap break-words max-h-32 overflow-y-auto custom-scrollbar text-slate-700 dark:text-gray-300">
+            <p className="text-sm font-mono whitespace-pre-wrap break-words max-h-32 overflow-y-auto custom-scrollbar text-slate-700 dark:text-gray-300 selectable-text">
               {clip.content.trim()}
             </p>
           )}

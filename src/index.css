@@ -14,6 +14,13 @@ body {
   touch-action: pan-x pan-y;
   overscroll-behavior-y: none;
   transition: background-color 0.3s ease, color 0.3s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input, textarea, .selectable-text {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 @media (prefers-color-scheme: light) {

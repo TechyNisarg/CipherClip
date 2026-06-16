@@ -1,7 +1,7 @@
 use crate::crypto::CryptoState;
 use crate::db::Database;
 use local_ip_address::local_ip;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
@@ -15,6 +15,7 @@ const MAGIC_WORD: &[u8] = b"CIPHERCLIP_DISCOVER";
 
 pub struct NetworkManager {
     peers: Arc<Mutex<HashMap<String, (Instant, String)>>>,
+    blocked_ips: Arc<Mutex<HashSet<String>>>,
 }
 
 #[derive(serde::Serialize)]
@@ -30,6 +31,7 @@ impl NetworkManager {
         db: Arc<Mutex<Database>>,
     ) -> Self {
         let peers: Arc<Mutex<HashMap<String, (Instant, String)>>> = Arc::new(Mutex::new(HashMap::new()));
+        let blocked_ips: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
         // 1. UDP Discovery Broadcaster
         let crypto_for_bc = crypto.clone();
@@ -55,6 +57,7 @@ impl NetworkManager {
 
         // 2. UDP Discovery Listener
         let peers_clone = peers.clone();
+        let blocked_ips_clone = blocked_ips.clone();
         let crypto_for_listen = crypto.clone();
         thread::spawn(move || {
             if let Ok(socket) = UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
@@ -83,7 +86,10 @@ impl NetworkManager {
                                             .to_string();
                                         if ip != my_ip {
                                             let mut p = peers_clone.lock().unwrap();
-                                            p.insert(ip, (Instant::now(), name));
+                                            let blocked = blocked_ips_clone.lock().unwrap();
+                                            if !blocked.contains(&ip) {
+                                                p.insert(ip, (Instant::now(), name));
+                                            }
                                             // Prune inactive peers
                                             p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
                                         }
@@ -175,7 +181,7 @@ impl NetworkManager {
             }
         });
 
-        Self { peers }
+        Self { peers, blocked_ips }
     }
 
     pub fn push_clip(&self, content_type: &str, encrypted_payload: &[u8]) {
@@ -203,16 +209,27 @@ impl NetworkManager {
     }
 
     pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
-        let mut p = self.peers.lock().unwrap();
-        p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
-        p.iter().map(|(ip, (_, name))| PeerInfo {
-            ip: ip.clone(),
-            name: name.clone(),
-        }).collect()
+        let mut p = self.peers.lock().unwrap(); p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
+        p.iter()
+            .map(|(ip, (_, name))| PeerInfo {
+                ip: ip.clone(),
+                name: name.clone(),
+            })
+            .collect()
     }
-    
+
     pub fn disconnect_peer(&self, ip: &str) {
-        let mut p = self.peers.lock().unwrap();
-        p.remove(ip);
+        if let Ok(mut p) = self.peers.lock() {
+            p.remove(ip);
+        }
+        if let Ok(mut blocked) = self.blocked_ips.lock() {
+            blocked.insert(ip.to_string());
+        }
+    }
+
+    pub fn clear_blocks(&self) {
+        if let Ok(mut blocked) = self.blocked_ips.lock() {
+            blocked.clear();
+        }
     }
 }
