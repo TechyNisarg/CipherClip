@@ -70,15 +70,6 @@ function App() {
   const [passwordInput, setPasswordInput] = useState("");
   const [settingsTab, setSettingsTab] = useState<'general' | 'sync' | 'data' | 'about'>('general');
   const [toast, setToast] = useState<string | null>(null);
-  const [modalClickable, setModalClickable] = useState(true);
-
-  useEffect(() => {
-    if (showPasswordPrompt || showPasswordSetup || showConfirmEmpty || clipToDelete) {
-      setModalClickable(false);
-      const timer = setTimeout(() => setModalClickable(true), 350);
-      return () => clearTimeout(timer);
-    }
-  }, [showPasswordPrompt, showPasswordSetup, showConfirmEmpty, clipToDelete]);
 
   const showToast = (msg: string) => {
     setToast(msg);
