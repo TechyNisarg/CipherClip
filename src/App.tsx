@@ -932,11 +932,10 @@ function App() {
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
               className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col items-center p-8 text-center max-h-[90vh] overflow-y-auto custom-scrollbar relative"
             >
-              <button onClick={() => setShowNetworkSync(false)} className="absolute top-6 right-6 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors z-10"><X className="w-6 h-6" /></button>
               <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6 border border-indigo-500/20">
                 <MonitorSmartphone className="text-indigo-500 w-10 h-10" />
               </div>
-              <h2 className="text-2xl font-bold text-slate-800 dark:text-gray-100 mb-3">Connected Devices</h2>
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-gray-100 mb-3">Welcome to CipherClip</h2>
               
               {!isMobile && (
                 <div className="flex flex-col mb-6 w-full">
@@ -1050,12 +1049,54 @@ function App() {
                       Scan QR
                     </button>
                   )}
-                  <button onClick={() => setShowConnectedDevicesModal(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300">
-                    <X className="w-5 h-5" />
-                  </button>
                 </div>
               </div>
               <div className="p-4 max-h-[60vh] overflow-y-auto">
+                <div className="flex flex-col mb-6 w-full">
+                  <button 
+                    onClick={() => setShowPairing(!showPairing)}
+                    className="flex items-center justify-between p-3 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl transition-colors font-medium border border-indigo-100 dark:border-indigo-500/20 mb-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <QrCode className="w-5 h-5" />
+                      <span>Connect a device</span>
+                    </div>
+                    {showPairing ? <Maximize2 className="w-4 h-4 rotate-45" /> : <Plus className="w-4 h-4" />}
+                  </button>
+
+                  <AnimatePresence>
+                    {showPairing && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="flex flex-col items-center bg-slate-50 dark:bg-gray-800/50 p-4 rounded-xl w-full border border-slate-100 dark:border-gray-800 mb-2">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-gray-200 mb-3">Scan with Mobile App</p>
+                          <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 dark:border-gray-700 mb-4">
+                            <QRCodeSVG value={syncKey} size={140} level="H" includeMargin={false} />
+                          </div>
+                          
+                          <div className="w-full bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-700 rounded-lg p-3 text-center cursor-pointer group hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors"
+                            onClick={async () => {
+                              try {
+                                await writeTextToClipboard(syncKey);
+                              } catch(e) {
+                                await navigator.clipboard.writeText(syncKey);
+                              }
+                              showToast("Sync key copied!");
+                            }}
+                          >
+                            <div className="text-xs text-slate-500 dark:text-gray-400 mb-1">Or copy device key</div>
+                            <div className="text-sm font-mono text-slate-700 dark:text-gray-300 break-all">{syncKey}</div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 {connectedPeers.length === 0 ? (
                   <div className="text-center p-6">
                     <MonitorSmartphone className="w-12 h-12 text-slate-300 dark:text-gray-700 mx-auto mb-3" />
@@ -1220,17 +1261,6 @@ function App() {
                 <>
                   <div className="px-5 pt-5 pb-2 flex justify-between items-center">
                     <h2 className="text-xl font-bold text-slate-800 dark:text-gray-200">Settings</h2>
-                    <button 
-                      onClick={() => {
-                        setShowSettings(false);
-                        setShortcutInput(shortcut);
-                        setShowRecycleBin(false);
-                        setShowNetworkSync(false);
-                      }} 
-                      className="p-1 text-slate-400 hover:text-slate-600 dark:text-gray-500 dark:hover:text-gray-300"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
                   </div>
                   
                   {/* Settings Navigation Tabs */}
