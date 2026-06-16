@@ -71,6 +71,12 @@ function App() {
   const [settingsTab, setSettingsTab] = useState<'general' | 'sync' | 'data' | 'about'>('general');
   const [toast, setToast] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (settingsTab === 'sync' || showNetworkSync) {
+      setSyncKeyInput(syncKey);
+    }
+  }, [settingsTab, showNetworkSync, syncKey]);
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
@@ -264,7 +270,8 @@ function App() {
     const setupFocusListener = async () => {
       const appWindow = getCurrentWindow();
       const unlistenFocus = await appWindow.onFocusChanged(async ({ payload: focused }) => {
-        if (!focused) {
+        const isMobileDevice = window.innerWidth < 768 || navigator.userAgent.toLowerCase().includes('android') || navigator.userAgent.toLowerCase().includes('iphone');
+        if (!focused && !isMobileDevice) {
           setShowSettings(false);
           setShowRecycleBin(false);
           setShowNetworkSync(false);
@@ -280,7 +287,7 @@ function App() {
           setPasswordInput("");
           setAlertModal(null);
           window.scrollTo(0, 0);
-        } else {
+        } else if (focused) {
           // Sync Mobile Clipboard to PC when app gains focus
           try {
             const t = await osType();
@@ -626,41 +633,18 @@ function App() {
       </div>
       
       <div className="w-full relative">
-        <div 
-          className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 dark:border-gray-700 mb-2 h-20 overflow-y-auto break-all selectable-text select-all"
-        >
-          {syncKeyInput || <span className="text-slate-400">Paste 64-character Sync Key here...</span>}
-        </div>
+        <input 
+          type="text"
+          inputMode="none"
+          value={syncKeyInput}
+          onChange={(e) => {
+            const val = e.target.value.replace(/[^a-fA-F0-9]/g, '');
+            if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
+          }}
+          placeholder="Paste 64-character Sync Key here..."
+          className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 dark:border-gray-700 mb-2 h-12 outline-none focus:ring-2 focus:ring-indigo-500 break-all selectable-text"
+        />
         <div className="flex gap-2 mb-4">
-          <button
-            onClick={async () => {
-              try {
-                const text = await readText();
-                if (text) {
-                  const val = text.replace(/[^a-fA-F0-9]/g, '');
-                  if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
-                } else {
-                  // Fallback for Windows if plugin fails
-                  const clipboardText = await navigator.clipboard.readText();
-                  if (clipboardText) {
-                    const val = clipboardText.replace(/[^a-fA-F0-9]/g, '');
-                    if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
-                  }
-                }
-              } catch(e) {
-                try {
-                  const clipboardText = await navigator.clipboard.readText();
-                  if (clipboardText) {
-                    const val = clipboardText.replace(/[^a-fA-F0-9]/g, '');
-                    if (val.length <= 64) setSyncKeyInput(val.toLowerCase());
-                  }
-                } catch(err) {}
-              }
-            }}
-            className="flex-1 py-1.5 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 text-slate-700 dark:text-gray-300 rounded text-xs font-medium transition-colors"
-          >
-            Paste Key
-          </button>
           <button
             onClick={() => setSyncKeyInput("")}
             className="flex-1 py-1.5 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 text-slate-700 dark:text-gray-300 rounded text-xs font-medium transition-colors"
@@ -723,13 +707,15 @@ function App() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            onClick={() => setShowConnectedDevicesModal(true)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border cursor-pointer ${connectedPeers.length > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20' : 'bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 border-slate-200 dark:border-gray-700'}`}
-          >
-            <MonitorSmartphone className="w-4 h-4" />
-            <span>{connectedPeers.length}</span>
-          </button>
+          <Tooltip text="Connected Devices (Ctrl+D)">
+            <button 
+              onClick={() => setShowConnectedDevicesModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border cursor-pointer ${connectedPeers.length > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20' : 'bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 border-slate-200 dark:border-gray-700'}`}
+            >
+              <MonitorSmartphone className="w-4 h-4" />
+              <span>{connectedPeers.length}</span>
+            </button>
+          </Tooltip>
           <Tooltip text="Settings (Ctrl+I)" side="bottom">
             <button 
               onClick={() => setShowSettings(true)}
@@ -941,11 +927,21 @@ function App() {
               <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mb-6 border border-indigo-500/20">
                 <MonitorSmartphone className="text-indigo-500 w-10 h-10" />
               </div>
-              <h2 className="text-2xl font-bold text-slate-800 dark:text-gray-100 mb-3">Welcome to CipherClip</h2>
-              <p className="text-slate-600 dark:text-gray-400 mb-8 max-w-sm leading-relaxed">
-                The most secure, lightning-fast clipboard manager. 
-                Keep your clips synced across devices, fully E2E encrypted on your local network.
-              </p>
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-gray-100 mb-3">Connected Devices</h2>
+              
+              {!isMobile && (
+                <div className="flex flex-col items-center mb-6 bg-slate-50 dark:bg-gray-800/50 p-4 rounded-2xl w-full border border-slate-100 dark:border-gray-800">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-gray-200 mb-3">Pair a new device</p>
+                  <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 dark:border-gray-700 mb-2">
+                    <QRCodeSVG value={syncKey} size={140} level="H" includeMargin={false} />
+                  </div>
+                  <p className="text-xs text-center text-slate-500 dark:text-gray-400 max-w-[250px]">
+                    Scan this QR code from the CipherClip mobile app.
+                  </p>
+                </div>
+              )}
+              
+              <p className="text-slate-600 dark:text-gray-400 mb-6 max-w-sm leading-relaxed">
               
               <div className="flex flex-col gap-4 w-full mb-8 text-left">
                 <div className="flex gap-4 items-start bg-slate-50 dark:bg-[#0d1117]/50 p-4 rounded-2xl border border-slate-100 dark:border-gray-800/50">
@@ -1046,19 +1042,7 @@ function App() {
                   </div>
                 )}
               </div>
-              {!isMobile && (
-                <div className="px-6 pb-6 pt-2">
-                  <div className="border-t border-slate-100 dark:border-gray-800 pt-4 flex flex-col items-center">
-                    <p className="text-sm font-medium text-slate-700 dark:text-gray-300 mb-3">Pair a new device</p>
-                    <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 dark:border-gray-800 mb-3">
-                      <QRCodeSVG value={syncKey} size={140} level="H" includeMargin={false} />
-                    </div>
-                    <p className="text-xs text-center text-slate-500 dark:text-gray-400 max-w-[250px]">
-                      Scan this QR code from the CipherClip mobile app to sync clipboards instantly.
-                    </p>
-                  </div>
-                </div>
-              )}
+              </div>
             </motion.div>
           </motion.div>
         )}

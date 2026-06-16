@@ -39,7 +39,10 @@ impl NetworkManager {
             if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
                 let _ = socket.set_broadcast(true);
                 let my_ip = local_ip().unwrap_or_else(|_| "127.0.0.1".parse().unwrap());
-                let device_name = whoami::devicename().unwrap_or_else(|_| "Unknown Device".to_string());
+                let mut device_name = whoami::devicename().unwrap_or_else(|_| "Unknown Device".to_string());
+                if device_name.to_lowercase() == "unknown" || device_name.to_lowercase() == "localhost" || device_name.trim().is_empty() {
+                    device_name = "Mobile Device".to_string();
+                }
                 
                 // Get hash of the sync key to only discover peers with the exact same key
                 if let Ok(raw_key) = crypto_for_bc.get_key() {
