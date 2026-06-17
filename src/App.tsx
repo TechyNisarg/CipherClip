@@ -50,6 +50,7 @@ function App() {
   };
   
   const [deletedClips, setDeletedClips] = useState<ClipItem[]>([]);
+  const [isLoadingDeleted, setIsLoadingDeleted] = useState(false);
   const [showRecycleBin, setShowRecycleBin] = useState(false);
   
   const [showNetworkSync, setShowNetworkSync] = useState(false);
@@ -97,11 +98,14 @@ function App() {
   }, []);
 
   const fetchDeletedHistory = async () => {
+    setIsLoadingDeleted(true);
     try {
       const history: ClipItem[] = await invoke("get_deleted_clips");
       setDeletedClips(history);
     } catch (error) {
       console.error("Failed to fetch deleted history:", error);
+    } finally {
+      setIsLoadingDeleted(false);
     }
   };
 
@@ -1250,15 +1254,37 @@ function App() {
                       <AlertTriangle className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
                       <span>Items automatically deleted when reaching your history limit bypass the recycle bin and are permanently removed to save space.</span>
                     </p>
-                    {deletedClips.length === 0 ? (
-                      <div className="text-center py-8 text-slate-400 dark:text-gray-600 text-sm flex flex-col items-center gap-2">
+                    {isLoadingDeleted ? (
+                      <div className="flex flex-col gap-3">
+                        {[1, 2, 3].map(i => (
+                          <div key={i} className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-lg p-3 shadow-sm animate-pulse">
+                            <div className="h-4 bg-slate-200 dark:bg-gray-700 rounded w-3/4 mb-3"></div>
+                            <div className="flex justify-between items-center mt-4">
+                              <div className="h-3 bg-slate-200 dark:bg-gray-700 rounded w-20"></div>
+                              <div className="flex gap-2">
+                                <div className="w-7 h-7 bg-slate-200 dark:bg-gray-700 rounded"></div>
+                                <div className="w-7 h-7 bg-slate-200 dark:bg-gray-700 rounded"></div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : deletedClips.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center text-slate-400 dark:text-gray-500 py-10 gap-3 text-sm font-medium">
                         <RefreshCcw className="w-8 h-8 opacity-20" />
                         Recycle bin is empty
                       </div>
                     ) : (
                       <div className="flex flex-col gap-3">
+                        <AnimatePresence>
                         {deletedClips.map(clip => (
-                          <div key={clip.id} className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-lg p-3 shadow-sm">
+                          <motion.div
+                            layout
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.2 }}
+                            key={clip.id} className="bg-white dark:bg-[#161b22] border border-slate-200 dark:border-gray-800 rounded-lg p-3 shadow-sm">
                             <div className="text-xs text-slate-600 dark:text-gray-300 mb-2 truncate font-mono selectable-text">
                               {clip.content_type === "image" ? "[Image]" : clip.content.substring(0, 150)}
                             </div>
@@ -1276,8 +1302,9 @@ function App() {
                                 </button>
                               </div>
                             </div>
-                          </div>
+                          </motion.div>
                         ))}
+                        </AnimatePresence>
                       </div>
                     )}
                   </div>

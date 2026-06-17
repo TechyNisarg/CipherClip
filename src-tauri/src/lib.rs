@@ -68,14 +68,12 @@ fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Res
     db.toggle_lock(id, is_locked).map_err(|e| e.to_string())?;
 
     if let Ok(Some(hash)) = db.get_hash_by_id(id) {
-        let event_str = if is_locked {
-            format!("LOCK:{}", hash)
-        } else {
-            format!("UNLOCK:{}", hash)
-        };
-        if let Ok(encrypted_event) = state.crypto.encrypt(event_str.as_bytes()) {
-            state.network.push_clip("EVENT", &encrypted_event);
+        if is_locked {
+            if let Ok(encrypted_event) = state.crypto.encrypt(format!("LOCK:{}", hash).as_bytes()) {
+                state.network.push_clip("EVENT", &encrypted_event);
+            }
         }
+        // Per user request: unlocking must never sync, so we do nothing here if !is_locked
     }
 
     Ok(())

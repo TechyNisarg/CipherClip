@@ -50,7 +50,7 @@ impl NetworkManager {
         crypto: Arc<CryptoState>,
         db: Arc<Mutex<Database>>,
     ) -> Self {
-        let instance_id_str = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros().to_string();
+        let instance_id_str = rand::random::<u32>().to_string();
         let peers: Arc<Mutex<HashMap<String, (Instant, String)>>> = Arc::new(Mutex::new(HashMap::new()));
         let blocked_ips: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
