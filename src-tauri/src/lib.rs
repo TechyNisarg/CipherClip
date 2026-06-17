@@ -175,6 +175,8 @@ fn set_sync_key(
         
     // Immediately drop any old peers discovered with the previous key
     state.network.clear_peers();
+    // Also clear any disconnected/blocked peers so scanning a new QR code reconnects everyone
+    state.network.clear_blocks();
 
     state.crypto.set_key_hex(&app_dir, &hex_key)
 }
