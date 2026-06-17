@@ -1015,6 +1015,15 @@ function App() {
                     <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">Set a master password to encrypt your history on-disk and lock sensitive clips.</p>
                   </div>
                 </div>
+                {!isMobile && (
+                  <div className="flex gap-4 items-start bg-slate-50 dark:bg-[#0d1117]/50 p-4 rounded-2xl border border-slate-100 dark:border-gray-800/50">
+                    <Copy className="w-6 h-6 text-blue-500 mt-0.5 shrink-0" />
+                    <div>
+                      <h4 className="font-semibold text-slate-800 dark:text-gray-200">Clip Actions</h4>
+                      <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">Hover over any clip with your mouse to reveal quick actions like copy, pin, and delete.</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button
