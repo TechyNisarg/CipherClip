@@ -50,11 +50,13 @@ impl NetworkManager {
         crypto: Arc<CryptoState>,
         db: Arc<Mutex<Database>>,
     ) -> Self {
+        let instance_id_str = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros().to_string();
         let peers: Arc<Mutex<HashMap<String, (Instant, String)>>> = Arc::new(Mutex::new(HashMap::new()));
         let blocked_ips: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
         // 1. UDP Discovery Broadcaster
         let crypto_for_bc = crypto.clone();
+        let instance_id_bc = instance_id_str.clone();
         thread::spawn(move || {
             // Create socket once outside the loop
             let socket = match UdpSocket::bind("0.0.0.0:0") {
@@ -80,7 +82,7 @@ impl NetworkManager {
                     hasher.update(&raw_key);
                     let key_hash = hex::encode(hasher.finalize());
                     
-                    let msg = format!("CIPHERCLIP_DISCOVER:{}:{}:{}", key_hash, my_ip, device_name);
+                    let msg = format!("CIPHERCLIP_DISCOVER:{}:{}:{}:{}", key_hash, instance_id_bc, my_ip, device_name);
                     let msg_bytes = msg.as_bytes();
 
                     // Send to global broadcast (works on most networks)
@@ -105,6 +107,7 @@ impl NetworkManager {
         let peers_clone = peers.clone();
         let blocked_ips_clone = blocked_ips.clone();
         let crypto_for_listen = crypto.clone();
+        let instance_id_listen = instance_id_str;
         thread::spawn(move || {
             let socket = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
                 Ok(s) => {
@@ -127,8 +130,8 @@ impl NetworkManager {
                     // Check for our protocol prefix (CIPHERCLIP_DISCOVER:)
                     if amt > prefix_len && &buf[0..prefix_len] == prefix {
                         let msg = String::from_utf8_lossy(&buf[prefix_len..amt]);
-                        let parts: Vec<&str> = msg.splitn(3, ':').collect();
-                        if parts.len() >= 2 {
+                        let parts: Vec<&str> = msg.splitn(4, ':').collect();
+                        if parts.len() >= 3 {
                             if let Ok(raw_key) = crypto_for_listen.get_key() {
                                 use sha2::{Digest, Sha256};
                                 let mut hasher = Sha256::new();
@@ -137,20 +140,19 @@ impl NetworkManager {
                                 
                                 let received_hash = parts[0]; // key_hash
                                 if received_hash == expected_hash {
-                                    let ip = parts[1].to_string(); // ip from the message
-                                    let name = if parts.len() > 2 { parts[2].to_string() } else { "Unknown Device".to_string() };
-                                    
-                                    // Use the source address from the packet as the actual peer IP
-                                    // This is more reliable than the IP reported in the message,
-                                    // especially on NAT/hotspot setups
-                                    let actual_peer_ip = match src_addr {
-                                        SocketAddr::V4(addr) => addr.ip().to_string(),
-                                        SocketAddr::V6(addr) => addr.ip().to_string(),
-                                    };
+                                    let received_instance_id = parts[1]; // instance_id
+                                    if received_instance_id != instance_id_listen {
+                                        let ip = parts[2].to_string(); // ip from the message
+                                        let name = if parts.len() > 3 { parts[3].to_string() } else { "Unknown Device".to_string() };
+                                        
+                                        // Use the source address from the packet as the actual peer IP
+                                        // This is more reliable than the IP reported in the message,
+                                        // especially on NAT/hotspot setups
+                                        let actual_peer_ip = match src_addr {
+                                            SocketAddr::V4(addr) => addr.ip().to_string(),
+                                            SocketAddr::V6(addr) => addr.ip().to_string(),
+                                        };
 
-                                    let my_ip = get_my_ip();
-                                    // Filter out our own broadcasts
-                                    if actual_peer_ip != my_ip && ip != my_ip {
                                         let mut p = peers_clone.lock().unwrap();
                                         let blocked = blocked_ips_clone.lock().unwrap();
                                         if !blocked.contains(&actual_peer_ip) {

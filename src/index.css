@@ -60,3 +60,9 @@ input, textarea, .selectable-text {
     background: #8b949e;
   }
 }
+
+/* Hide native edge/windows reveal password eye icon */
+input[type=password]::-ms-reveal,
+input[type=password]::-ms-clear {
+  display: none;
+}

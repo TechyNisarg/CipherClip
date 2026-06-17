@@ -273,7 +273,7 @@ function App() {
       }
       if (e.ctrlKey && e.key.toLowerCase() === 'd') {
         e.preventDefault();
-        setShowConnectedDevicesModal(true);
+        setShowConnectedDevicesModal(prev => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
