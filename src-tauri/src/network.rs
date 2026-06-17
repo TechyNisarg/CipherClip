@@ -44,6 +44,9 @@ fn get_my_ip() -> String {
     "127.0.0.1".to_string()
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+static NETWORK_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
 impl NetworkManager {
     pub fn new(
         app_handle: tauri::AppHandle,
@@ -53,6 +56,11 @@ impl NetworkManager {
         let instance_id_str = rand::random::<u32>().to_string();
         let peers: Arc<Mutex<HashMap<String, (Instant, String)>>> = Arc::new(Mutex::new(HashMap::new()));
         let blocked_ips: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+
+        if NETWORK_INITIALIZED.swap(true, Ordering::SeqCst) {
+            println!("NetworkManager already initialized! Skipping thread spawn.");
+            return Self { peers, blocked_ips };
+        }
 
         // 1. UDP Discovery Broadcaster
         let crypto_for_bc = crypto.clone();
