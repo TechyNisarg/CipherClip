@@ -142,6 +142,23 @@ impl Database {
         Ok(())
     }
 
+    pub fn toggle_lock_by_hash(&self, hash: &str, is_locked: bool) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE clipboard_history SET is_locked = ?1 WHERE payload_hash = ?2",
+            (is_locked, hash),
+        )?;
+        Ok(())
+    }
+
+    pub fn is_locked_by_hash(&self, hash: &str) -> SqlResult<bool> {
+        let is_locked: bool = self.conn.query_row(
+            "SELECT is_locked FROM clipboard_history WHERE payload_hash = ?1",
+            (hash,),
+            |row| row.get(0),
+        ).unwrap_or(false);
+        Ok(is_locked)
+    }
+
     pub fn toggle_pin_by_hash(&self, hash: &str, pinned: bool) -> SqlResult<()> {
         self.conn.execute(
             "UPDATE clipboard_history SET pinned = ?1 WHERE payload_hash = ?2",

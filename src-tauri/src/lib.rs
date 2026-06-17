@@ -65,7 +65,20 @@ fn toggle_pin(state: State<'_, AppState>, id: i64, pinned: bool) -> Result<(), S
 #[tauri::command]
 fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.toggle_lock(id, is_locked).map_err(|e| e.to_string())
+    db.toggle_lock(id, is_locked).map_err(|e| e.to_string())?;
+
+    if let Ok(Some(hash)) = db.get_hash_by_id(id) {
+        let event_str = if is_locked {
+            format!("LOCK:{}", hash)
+        } else {
+            format!("UNLOCK:{}", hash)
+        };
+        if let Ok(encrypted_event) = state.crypto.encrypt(event_str.as_bytes()) {
+            state.network.push_clip("EVENT", &encrypted_event);
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

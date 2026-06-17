@@ -221,10 +221,23 @@ impl NetworkManager {
                                                 let hash = &event_str[6..];
                                                 let _ = db_lock.toggle_pin_by_hash(hash, false);
                                                 let _ = app_c.emit("clipboard-update", ());
+                                            } else if event_str.starts_with("LOCK:") {
+                                                let hash = &event_str[5..];
+                                                let _ = db_lock.toggle_lock_by_hash(hash, true);
+                                                let _ = app_c.emit("clipboard-update", ());
+                                            } else if event_str.starts_with("UNLOCK:") {
+                                                let hash = &event_str[7..];
+                                                let _ = db_lock.toggle_lock_by_hash(hash, false);
+                                                let _ = app_c.emit("clipboard-update", ());
                                             } else if event_str.starts_with("DELETE:") {
                                                 let hash = &event_str[7..];
-                                                let _ = db_lock.delete_clip_by_hash(hash);
-                                                let _ = app_c.emit("clipboard-update", ());
+                                                // Immunity from rule #2: Ignore if locked
+                                                if let Ok(is_locked) = db_lock.is_locked_by_hash(hash) {
+                                                    if !is_locked {
+                                                        let _ = db_lock.delete_clip_by_hash(hash);
+                                                        let _ = app_c.emit("clipboard-update", ());
+                                                    }
+                                                }
                                             }
                                         }
                                     }
