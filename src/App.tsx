@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
+import { Image as TauriImage } from '@tauri-apps/api/image';
 import { type as osType } from '@tauri-apps/plugin-os';
 
 const isMobile = osType() === 'android' || osType() === 'ios';
@@ -69,6 +70,7 @@ function App() {
   const [showPasswordPrompt, setShowPasswordPrompt] = useState<{clipId: number, isAutoPaste: boolean, action: 'copy' | 'unlock'} | null>(null);
   const [pendingLockId, setPendingLockId] = useState<number | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
+  const [showPasswordIcon, setShowPasswordIcon] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'sync' | 'data' | 'about'>('general');
   const [toast, setToast] = useState<string | null>(null);
 
@@ -367,7 +369,8 @@ function App() {
         if (pngBlob) {
           try {
             const arrayBuffer = await pngBlob.arrayBuffer();
-            await writeImage(new Uint8Array(arrayBuffer));
+            const img = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
+            await writeImage(img);
           } catch (e) {
             console.error("Plugin writeImage failed, falling back to navigator", e);
             await navigator.clipboard.write([
@@ -1048,15 +1051,6 @@ function App() {
                   <h3 className="font-semibold text-slate-800 dark:text-gray-200">Connected Devices</h3>
                 </div>
                 <div className="flex items-center gap-2">
-                  {isMobile && (
-                    <button
-                      onClick={handleScanQR}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-md text-[11px] font-medium transition-colors cursor-pointer"
-                    >
-                      <Scan className="w-3.5 h-3.5" />
-                      Scan QR
-                    </button>
-                  )}
                   <button onClick={() => setShowConnectedDevicesModal(false)} className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors">
                     <X className="w-5 h-5" />
                   </button>
@@ -1703,15 +1697,24 @@ function App() {
                   ? "Enter your current master password to remove it. All locked clips will be unlocked."
                   : "Requires: Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character."}
               </p>
-              <input
-                type="password"
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder={hasMasterPassword ? "Current Master Password" : "Enter a strong password"}
-                autoFocus
-                onKeyDown={(e) => e.key === 'Enter' && executeSetMasterPassword()}
-                className="w-full mb-6 bg-slate-100 dark:bg-gray-800 text-slate-800 dark:text-gray-200 px-4 py-2.5 rounded-xl text-sm border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
+              <div className="relative mb-6">
+                <input
+                  type={showPasswordIcon ? "text" : "password"}
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder={hasMasterPassword ? "Current Master Password" : "Enter a strong password"}
+                  autoFocus
+                  onKeyDown={(e) => e.key === 'Enter' && executeSetMasterPassword()}
+                  className="w-full bg-slate-100 dark:bg-gray-800 text-slate-800 dark:text-gray-200 px-4 py-2.5 pr-10 rounded-xl text-sm border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordIcon(!showPasswordIcon)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
+                >
+                  {showPasswordIcon ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => {
@@ -1763,17 +1766,26 @@ function App() {
               <p className="text-sm text-slate-600 dark:text-gray-400 mb-4">
                 This clip contains sensitive information. Please enter your master password to unlock and copy it.
               </p>
-              <input
-                type="password"
-                value={passwordInput}
-                autoFocus
-                onChange={(e) => setPasswordInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleUnlockClip();
-                }}
-                className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none mb-6"
-                placeholder="Enter master password"
-              />
+              <div className="relative mb-6">
+                <input
+                  type={showPasswordIcon ? "text" : "password"}
+                  value={passwordInput}
+                  autoFocus
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleUnlockClip();
+                  }}
+                  className="w-full bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 px-4 py-3 pr-10 rounded-xl text-sm border border-slate-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="Enter master password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordIcon(!showPasswordIcon)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
+                >
+                  {showPasswordIcon ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowPasswordPrompt(null)}
@@ -1904,7 +1916,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
           <span className="uppercase">{clip.content_type}</span>
         </div>
         <div className={`flex items-center gap-1 transition-opacity ${isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-          {clip.content_type === "image" && (
+          {clip.content_type === "image" && !isMobile && (
             <Tooltip text="Preview full image">
               <button
                 disabled={isLoadingPreview}
