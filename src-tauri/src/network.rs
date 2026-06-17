@@ -15,6 +15,8 @@ const TCP_PORT: u16 = 45556;
 pub struct NetworkManager {
     peers: Arc<Mutex<HashMap<String, (Instant, String)>>>,
     blocked_ips: Arc<Mutex<HashSet<String>>>,
+    crypto: Arc<CryptoState>,
+    instance_id: String,
 }
 
 #[derive(serde::Serialize)]
@@ -59,7 +61,7 @@ impl NetworkManager {
 
         if NETWORK_INITIALIZED.swap(true, Ordering::SeqCst) {
             println!("NetworkManager already initialized! Skipping thread spawn.");
-            return Self { peers, blocked_ips };
+            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone() };
         }
 
         // 1. UDP Discovery Broadcaster
@@ -115,7 +117,7 @@ impl NetworkManager {
         let peers_clone = peers.clone();
         let blocked_ips_clone = blocked_ips.clone();
         let crypto_for_listen = crypto.clone();
-        let instance_id_listen = instance_id_str;
+        let instance_id_listen = instance_id_str.clone();
         thread::spawn(move || {
             let socket = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
                 Ok(s) => {
@@ -173,17 +175,43 @@ impl NetworkManager {
                                 }
                             }
                         }
+                    } else if amt > 22 && &buf[0..22] == b"CIPHERCLIP_DISCONNECT:" {
+                        let msg = String::from_utf8_lossy(&buf[22..amt]);
+                        let parts: Vec<&str> = msg.splitn(3, ':').collect();
+                        if parts.len() == 3 {
+                            if let Ok(raw_key) = crypto_for_listen.get_key() {
+                                use sha2::{Digest, Sha256};
+                                let mut hasher = Sha256::new();
+                                hasher.update(&raw_key);
+                                let expected_hash = hex::encode(hasher.finalize());
+                                
+                                let received_hash = parts[0];
+                                if received_hash == expected_hash {
+                                    let mut p = peers_clone.lock().unwrap();
+                                    let mut blocked = blocked_ips_clone.lock().unwrap();
+                                    
+                                    let actual_peer_ip = match src_addr {
+                                        SocketAddr::V4(addr) => addr.ip().to_string(),
+                                        SocketAddr::V6(addr) => addr.ip().to_string(),
+                                    };
+                                    
+                                    p.remove(&actual_peer_ip);
+                                    blocked.insert(actual_peer_ip);
+                                }
+                            }
+                        }
                     }
                 }
             }
         });
 
         // 3. TCP Server for incoming clips
+        let crypto_tcp = crypto.clone();
         thread::spawn(move || {
             if let Ok(listener) = TcpListener::bind(("0.0.0.0", TCP_PORT)) {
                 for stream in listener.incoming() {
                     if let Ok(mut stream) = stream {
-                        let crypto_c = crypto.clone();
+                        let crypto_c = crypto_tcp.clone();
                         let db_c = db.clone();
                         let app_c = app_handle.clone();
 
@@ -270,7 +298,7 @@ impl NetworkManager {
             }
         });
 
-        Self { peers, blocked_ips }
+        Self { peers, blocked_ips, crypto, instance_id: instance_id_str }
     }
 
     pub fn push_clip(&self, content_type: &str, encrypted_payload: &[u8]) {
@@ -315,11 +343,30 @@ impl NetworkManager {
         if let Ok(mut blocked) = self.blocked_ips.lock() {
             blocked.insert(ip.to_string());
         }
+        
+        // Broadcast a DISCONNECT to this peer explicitly
+        if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+            if let Ok(raw_key) = self.crypto.get_key() {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(&raw_key);
+                let key_hash = hex::encode(hasher.finalize());
+                let my_ip = get_my_ip();
+                let msg = format!("CIPHERCLIP_DISCONNECT:{}:{}:{}", key_hash, self.instance_id, my_ip);
+                let _ = socket.send_to(msg.as_bytes(), format!("{}:{}", ip, DISCOVERY_PORT));
+            }
+        }
     }
 
     pub fn clear_blocks(&self) {
         if let Ok(mut blocked) = self.blocked_ips.lock() {
             blocked.clear();
+        }
+    }
+
+    pub fn clear_peers(&self) {
+        if let Ok(mut p) = self.peers.lock() {
+            p.clear();
         }
     }
 }

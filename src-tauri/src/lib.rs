@@ -172,6 +172,10 @@ fn set_sync_key(
         .path()
         .app_data_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
+        
+    // Immediately drop any old peers discovered with the previous key
+    state.network.clear_peers();
+
     state.crypto.set_key_hex(&app_dir, &hex_key)
 }
 
