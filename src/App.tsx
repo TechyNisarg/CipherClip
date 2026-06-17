@@ -1239,7 +1239,7 @@ function App() {
                     {deletedClips.length > 0 && (
                       <button 
                         onClick={handleEmptyRecycleBin}
-                        className="text-xs font-medium text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-500/10 px-2 py-1 rounded transition-colors"
+                        className="text-xs font-medium text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-500/10 px-2 py-1 rounded transition-colors mr-8"
                       >
                         Empty All
                       </button>
