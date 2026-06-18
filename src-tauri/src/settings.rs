@@ -11,6 +11,8 @@ pub struct AppSettings {
     pub theme: String,
     #[serde(default)]
     pub master_password_hash: Option<String>,
+    #[serde(default)]
+    pub blocked_ips: Vec<String>,
 }
 
 fn default_theme() -> String {
@@ -21,9 +23,10 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             history_limit: 100, // Default limit
-            global_shortcut: "Super+Shift+C".to_string(),
-            theme: "system".to_string(),
+            global_shortcut: "CommandOrControl+Shift+C".to_string(),
+            theme: default_theme(),
             master_password_hash: None,
+            blocked_ips: Vec::new(),
         }
     }
 }
@@ -68,6 +71,26 @@ impl SettingsManager {
             s.history_limit = limit;
         }
         self.save().map_err(|e| e.to_string())
+    }
+
+    pub fn get_blocked_ips(&self) -> Vec<String> {
+        self.settings.lock().unwrap().blocked_ips.clone()
+    }
+
+    pub fn add_blocked_ip(&self, ip: String) {
+        let mut s = self.settings.lock().unwrap();
+        if !s.blocked_ips.contains(&ip) {
+            s.blocked_ips.push(ip);
+            drop(s);
+            let _ = self.save();
+        }
+    }
+
+    pub fn clear_blocked_ips(&self) {
+        let mut s = self.settings.lock().unwrap();
+        s.blocked_ips.clear();
+        drop(s);
+        let _ = self.save();
     }
 
     pub fn set_shortcut(&self, shortcut: String) -> Result<(), String> {

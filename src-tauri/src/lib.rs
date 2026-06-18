@@ -453,6 +453,7 @@ pub fn run() {
                 app.handle().clone(),
                 crypto.clone(),
                 db.clone(),
+                settings.clone(),
             ));
 
             let ignore_next_update = Arc::new(AtomicBool::new(false));

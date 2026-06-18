@@ -17,6 +17,7 @@ pub struct NetworkManager {
     blocked_ips: Arc<Mutex<HashSet<String>>>,
     crypto: Arc<CryptoState>,
     instance_id: String,
+    settings: Arc<crate::settings::SettingsManager>,
 }
 
 #[derive(serde::Serialize)]
@@ -54,14 +55,17 @@ impl NetworkManager {
         app_handle: tauri::AppHandle,
         crypto: Arc<CryptoState>,
         db: Arc<Mutex<Database>>,
+        settings: Arc<crate::settings::SettingsManager>,
     ) -> Self {
         let instance_id_str = rand::random::<u32>().to_string();
         let peers: Arc<Mutex<HashMap<String, (Instant, String)>>> = Arc::new(Mutex::new(HashMap::new()));
-        let blocked_ips: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+        
+        let blocked_ips_set = settings.get_blocked_ips().into_iter().collect();
+        let blocked_ips: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(blocked_ips_set));
 
         if NETWORK_INITIALIZED.swap(true, Ordering::SeqCst) {
             println!("NetworkManager already initialized! Skipping thread spawn.");
-            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone() };
+            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone(), settings: settings.clone() };
         }
 
         // 1. UDP Discovery Broadcaster
@@ -118,6 +122,7 @@ impl NetworkManager {
         let blocked_ips_clone = blocked_ips.clone();
         let crypto_for_listen = crypto.clone();
         let instance_id_listen = instance_id_str.clone();
+        let settings_clone = settings.clone();
         thread::spawn(move || {
             let socket = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
                 Ok(s) => {
@@ -196,7 +201,9 @@ impl NetworkManager {
                                     };
                                     
                                     p.remove(&actual_peer_ip);
-                                    blocked.insert(actual_peer_ip);
+                                    if blocked.insert(actual_peer_ip.clone()) {
+                                        settings_clone.add_blocked_ip(actual_peer_ip);
+                                    }
                                 }
                             }
                         }
@@ -298,7 +305,7 @@ impl NetworkManager {
             }
         });
 
-        Self { peers, blocked_ips, crypto, instance_id: instance_id_str }
+        Self { peers, blocked_ips, crypto, instance_id: instance_id_str, settings }
     }
 
     pub fn push_clip(&self, content_type: &str, encrypted_payload: &[u8]) {
@@ -341,7 +348,9 @@ impl NetworkManager {
             p.remove(ip);
         }
         if let Ok(mut blocked) = self.blocked_ips.lock() {
-            blocked.insert(ip.to_string());
+            if blocked.insert(ip.to_string()) {
+                self.settings.add_blocked_ip(ip.to_string());
+            }
         }
         
         // Broadcast a DISCONNECT to this peer explicitly
@@ -361,6 +370,7 @@ impl NetworkManager {
     pub fn clear_blocks(&self) {
         if let Ok(mut blocked) = self.blocked_ips.lock() {
             blocked.clear();
+            self.settings.clear_blocked_ips();
         }
     }
 
