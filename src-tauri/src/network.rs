@@ -174,8 +174,8 @@ impl NetworkManager {
                                             // Use actual_peer_ip (from packet source) for TCP connections
                                             p.insert(actual_peer_ip, (Instant::now(), name));
                                         }
-                                        // Prune inactive peers (not seen in 15 seconds)
-                                        p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
+                                        // Prune inactive peers (not seen in 45 seconds)
+                                        p.retain(|_, (time, _)| time.elapsed().as_secs() < 45);
                                     }
                                 }
                             }
@@ -334,7 +334,7 @@ impl NetworkManager {
 
     pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
         let mut p = self.peers.lock().unwrap();
-        p.retain(|_, (time, _)| time.elapsed().as_secs() < 15);
+        p.retain(|_, (time, _)| time.elapsed().as_secs() < 45);
         p.iter()
             .map(|(ip, (_, name))| PeerInfo {
                 ip: ip.clone(),

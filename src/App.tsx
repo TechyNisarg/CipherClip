@@ -164,6 +164,7 @@ function App() {
   }, []);
 
   const [isScanning, setIsScanning] = useState(false);
+  const [isScanningLoading, setIsScanningLoading] = useState(false);
 
   const handleScanQR = async () => {
     try {
@@ -186,15 +187,15 @@ function App() {
           setSyncKeyInput(result.content);
           await invoke("set_sync_key", { hexKey: result.content });
           setSyncKey(result.content);
-          setShowConnectedDevicesModal(false);
-          // Poll for peers immediately after setting key — peer will appear within one broadcast cycle (5s)
-          setTimeout(async () => {
-            try {
-              const peers: {ip: string, name: string}[] = await invoke("get_connected_peers");
-              setConnectedPeers(peers);
-            } catch(e) {}
-            setShowConnectedDevicesModal(true);
-          }, 6000);
+          
+          setIsScanningLoading(true);
+          setShowConnectedDevicesModal(true); // Ensure modal is open to show loading state
+          
+          // Force an immediate fetch to speed up discovery
+          try {
+            const peers: {ip: string, name: string}[] = await invoke("get_connected_peers");
+            setConnectedPeers(peers);
+          } catch(e) {}
           setAlertModal({ message: "Sync key set! Make sure both devices are on the same Wi-Fi. Your PC should appear below within a few seconds.", isError: false });
         } else {
           setAlertModal({ message: "Invalid QR Code. Sync Key must be 64 characters long.", isError: true });
@@ -238,6 +239,20 @@ function App() {
       setAlertModal({ message: "Failed to update Sync Key: " + err, isError: true });
     }
   };
+
+  useEffect(() => {
+    let timeout: any;
+    if (isScanningLoading) {
+      if (connectedPeers.length > 0) {
+        setIsScanningLoading(false);
+      } else {
+        timeout = setTimeout(() => {
+          setIsScanningLoading(false);
+        }, 15000); // 15 seconds max wait
+      }
+    }
+    return () => clearTimeout(timeout);
+  }, [isScanningLoading, connectedPeers.length]);
 
   useEffect(() => {
     fetchHistory();
@@ -1136,7 +1151,15 @@ function App() {
                     <span>Scan QR Code to Connect</span>
                   </button>
                 )}
-                {connectedPeers.length === 0 ? (
+                {isScanningLoading ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 dark:border-indigo-400 mb-4 mx-auto"></div>
+                    <h3 className="text-lg font-semibold text-slate-800 dark:text-gray-100 mb-2">Connecting...</h3>
+                    <p className="text-sm text-slate-500 dark:text-gray-400 max-w-[250px] mx-auto">
+                      Discovering device on your local network. This may take a few seconds.
+                    </p>
+                  </div>
+                ) : connectedPeers.length === 0 ? (
                   <div className="text-center p-6">
                     <MonitorSmartphone className="w-12 h-12 text-slate-300 dark:text-gray-700 mx-auto mb-3" />
                     <p className="text-slate-500 dark:text-gray-400 text-sm">No devices connected on the local network.</p>
