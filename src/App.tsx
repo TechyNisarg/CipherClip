@@ -956,7 +956,12 @@ function App() {
               {!isMobile && (
                 <div className="flex flex-col mb-6 w-full">
                   <button 
-                    onClick={() => setShowPairing(!showPairing)}
+                    onClick={() => {
+                      setShowPairing(!showPairing);
+                      if (!showPairing) {
+                        invoke("clear_blocks").catch(console.error);
+                      }
+                    }}
                     className="flex items-center justify-between p-3 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl transition-colors font-medium border border-indigo-100 dark:border-indigo-500/20"
                   >
                     <div className="flex items-center gap-2">
@@ -1073,7 +1078,12 @@ function App() {
                 {!isMobile && (
                 <div className="flex flex-col mb-4 w-full">
                   <button 
-                    onClick={() => setShowPairing(!showPairing)}
+                    onClick={() => {
+                      setShowPairing(!showPairing);
+                      if (!showPairing) {
+                        invoke("clear_blocks").catch(console.error);
+                      }
+                    }}
                     className="flex items-center justify-between p-3 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl transition-colors font-medium border border-indigo-100 dark:border-indigo-500/20 mb-2"
                   >
                     <div className="flex items-center gap-2">

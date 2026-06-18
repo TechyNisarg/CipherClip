@@ -143,6 +143,12 @@ fn disconnect_peer(state: State<'_, AppState>, ip: String) -> Result<(), String>
 }
 
 #[tauri::command]
+fn clear_blocks(state: State<'_, AppState>) -> Result<(), String> {
+    state.network.clear_blocks();
+    Ok(())
+}
+
+#[tauri::command]
 fn empty_recycle_bin(state: State<'_, AppState>) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.empty_recycle_bin().map_err(|e| e.to_string())
@@ -539,7 +545,8 @@ pub fn run() {
             toggle_clip_lock,
             open_image_preview,
             get_connected_peers,
-            disconnect_peer
+            disconnect_peer,
+            clear_blocks
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
