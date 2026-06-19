@@ -214,10 +214,17 @@ impl NetworkManager {
 
         // 3. TCP Server for incoming clips
         let crypto_tcp = crypto.clone();
+        let blocked_ips_tcp = blocked_ips.clone();
         thread::spawn(move || {
             if let Ok(listener) = TcpListener::bind(("0.0.0.0", TCP_PORT)) {
                 for stream in listener.incoming() {
                     if let Ok(mut stream) = stream {
+                        if let Ok(peer_addr) = stream.peer_addr() {
+                            let src_ip = peer_addr.ip().to_string();
+                            if blocked_ips_tcp.lock().unwrap().contains(&src_ip) {
+                                continue;
+                            }
+                        }
                         let crypto_c = crypto_tcp.clone();
                         let db_c = db.clone();
                         let app_c = app_handle.clone();
