@@ -772,7 +772,10 @@ function App() {
         <div className="flex items-center gap-2">
           <Tooltip text="Connected Devices (Ctrl+D)">
             <button 
-              onClick={() => setShowConnectedDevicesModal(true)}
+              onClick={() => {
+                setShowConnectedDevicesModal(true);
+                invoke("clear_blocks").catch(console.error);
+              }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border cursor-pointer ${connectedPeers.length > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20' : 'bg-slate-100 dark:bg-gray-800 text-slate-500 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 border-slate-200 dark:border-gray-700'}`}
             >
               <MonitorSmartphone className="w-4 h-4" />
