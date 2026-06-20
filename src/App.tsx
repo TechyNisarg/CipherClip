@@ -316,6 +316,8 @@ function App() {
           setAlertModal(null);
           window.scrollTo(0, 0);
         } else if (focused) {
+          fetchHistory(); // Refresh history unconditionally on focus
+
           // Sync Mobile Clipboard to PC when app gains focus
           try {
             const t = await osType();
@@ -337,7 +339,30 @@ function App() {
     };
     setupFocusListener();
 
+    // Fallback visibility listener for Android/iOS where onFocusChanged may drop
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === "visible") {
+        fetchHistory();
+        try {
+          const t = await osType();
+          if (t === 'android' || t === 'ios') {
+            const text = await readText();
+            if (text && text.trim().length > 0) {
+              const added = await invoke("add_mobile_clip", { text });
+              if (added) {
+                fetchHistory();
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Mobile clipboard sync error:", e);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(peerInterval);
       unlisten.then((f) => f());
       window.removeEventListener('keydown', handleKeyDown);
