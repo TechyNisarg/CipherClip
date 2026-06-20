@@ -193,7 +193,7 @@ function App() {
             const peers: {ip: string, name: string}[] = await invoke("get_connected_peers");
             setConnectedPeers(peers);
           } catch(e) {}
-          setAlertModal({ message: "Sync key set! Make sure both devices are on the same Wi-Fi. Your PC should appear below within a few seconds.", isError: false });
+          // Success alert removed because the "Connecting..." UI is already shown to the user
         } else {
           setAlertModal({ message: "Invalid QR Code. Sync Key must be 64 characters long.", isError: true });
         }
@@ -319,6 +319,33 @@ function App() {
           fetchHistory(); // Refresh history unconditionally on focus
 
           // Sync Mobile Clipboard to PC when app gains focus
+          setTimeout(async () => {
+            try {
+              const t = await osType();
+              if (t === 'android' || t === 'ios') {
+                const text = await readText();
+                if (text && text.trim().length > 0) {
+                  const added = await invoke("add_mobile_clip", { text });
+                  if (added) {
+                    fetchHistory();
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("Mobile clipboard sync error:", e);
+            }
+          }, 500);
+        }
+      });
+      unlistenFocusFn = unlistenFocus;
+    };
+    setupFocusListener();
+
+    // Fallback visibility listener for Android/iOS where onFocusChanged may drop
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchHistory();
+        setTimeout(async () => {
           try {
             const t = await osType();
             if (t === 'android' || t === 'ios') {
@@ -333,30 +360,7 @@ function App() {
           } catch (e) {
             console.error("Mobile clipboard sync error:", e);
           }
-        }
-      });
-      unlistenFocusFn = unlistenFocus;
-    };
-    setupFocusListener();
-
-    // Fallback visibility listener for Android/iOS where onFocusChanged may drop
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === "visible") {
-        fetchHistory();
-        try {
-          const t = await osType();
-          if (t === 'android' || t === 'ios') {
-            const text = await readText();
-            if (text && text.trim().length > 0) {
-              const added = await invoke("add_mobile_clip", { text });
-              if (added) {
-                fetchHistory();
-              }
-            }
-          }
-        } catch (e) {
-          console.error("Mobile clipboard sync error:", e);
-        }
+        }, 500);
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
