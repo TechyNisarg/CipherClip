@@ -13,10 +13,16 @@ pub struct AppSettings {
     pub master_password_hash: Option<String>,
     #[serde(default)]
     pub blocked_ips: Vec<String>,
+    #[serde(default = "generate_device_id")]
+    pub device_id: String,
 }
 
 fn default_theme() -> String {
     "system".to_string()
+}
+
+fn generate_device_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 impl Default for AppSettings {
@@ -27,6 +33,7 @@ impl Default for AppSettings {
             theme: default_theme(),
             master_password_hash: None,
             blocked_ips: Vec::new(),
+            device_id: generate_device_id(),
         }
     }
 }

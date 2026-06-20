@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
@@ -8,6 +8,7 @@ import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
 import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { Image as TauriImage } from '@tauri-apps/api/image';
 import { type as osType } from '@tauri-apps/plugin-os';
 
@@ -20,11 +21,14 @@ interface ClipItem {
   timestamp: number;
   pinned: boolean;
   is_locked: boolean;
+  has_attachment?: boolean;
+  attachment_path?: string;
 }
 
 function App() {
   const [clips, setClips] = useState<ClipItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [downloadingClips, setDownloadingClips] = useState<Set<string>>(new Set());
 
   const [limit, setLimit] = useState(100);
   const [shortcut, setShortcut] = useState("Super+Shift+C");
@@ -35,6 +39,7 @@ function App() {
   const [deleteLocked, setDeleteLocked] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [connectedPeers, setConnectedPeers] = useState<{ip: string, name: string}[]>([]);
+  const [knownPeers, setKnownPeers] = useState<{device_id: string, name: string, last_seen: number}[]>([]);
   const [activeTab, setActiveTab] = useState<'recent' | 'pinned'>('recent');
   const [showTutorial, setShowTutorial] = useState(false);
   
@@ -260,6 +265,8 @@ function App() {
       try {
         const peers: {ip: string, name: string}[] = await invoke("get_connected_peers");
         setConnectedPeers(peers);
+        const known: {device_id: string, name: string, last_seen: number}[] = await invoke("get_known_devices");
+        setKnownPeers(known);
       } catch (error) {
         console.error(error);
       }
@@ -267,8 +274,29 @@ function App() {
     pollPeers();
     const peerInterval = setInterval(pollPeers, 5000);
 
+    let updateTimeout: any;
     const unlisten = listen("clipboard-update", () => {
-      fetchHistory();
+      if (updateTimeout) clearTimeout(updateTimeout);
+      updateTimeout = setTimeout(() => {
+        fetchHistory();
+      }, 50);
+    });
+
+    const unlistenDownload = listen("download_progress", (event: any) => {
+      const payload = event.payload as { uuid: string, percentage: number };
+      if (payload.percentage < 100) {
+        setDownloadingClips(prev => {
+          const next = new Set(prev);
+          next.add(payload.uuid);
+          return next;
+        });
+      } else {
+        setDownloadingClips(prev => {
+          const next = new Set(prev);
+          next.delete(payload.uuid);
+          return next;
+        });
+      }
     });
 
     const preventZoom = (e: TouchEvent) => {
@@ -369,6 +397,7 @@ function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(peerInterval);
       unlisten.then((f) => f());
+      unlistenDownload.then((f) => f());
       window.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('touchstart', preventZoom);
       document.removeEventListener('touchmove', preventZoom);
@@ -399,7 +428,17 @@ function App() {
     }
     
     try {
-      if (clip.content_type === "image") {
+      if (clip.has_attachment && clip.attachment_path) {
+        try {
+          if (!isMobile) await invoke("set_ignore_next_update");
+        } catch(e) {}
+        
+        await invoke("copy_attachment", { 
+          path: clip.attachment_path,
+          contentType: clip.content_type
+        });
+      } else if (clip.content_type === "image") {
+        // Legacy base64 images
         try {
           if (!isMobile) await invoke("set_ignore_next_update");
         } catch(e) {}
@@ -414,8 +453,8 @@ function App() {
         if (pngBlob) {
           try {
             const arrayBuffer = await pngBlob.arrayBuffer();
-            const img = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-            await writeImage(img);
+            const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
+            await writeImage(tauriImg);
           } catch (e) {
             console.error("Plugin writeImage failed, falling back to navigator", e);
             await navigator.clipboard.write([
@@ -855,6 +894,7 @@ function App() {
                           showToast("Opening image in system viewer...");
                           await invoke('open_image_preview', { base64Data: base64 });
                         }}
+                        downloadingClips={downloadingClips}
                       />
                     ))}
                   </AnimatePresence>
@@ -1188,10 +1228,10 @@ function App() {
                       Discovering device on your local network. This may take a few seconds.
                     </p>
                   </div>
-                ) : connectedPeers.length === 0 ? (
+                ) : connectedPeers.length === 0 && knownPeers.length === 0 ? (
                   <div className="text-center p-6">
                     <MonitorSmartphone className="w-12 h-12 text-slate-300 dark:text-gray-700 mx-auto mb-3" />
-                    <p className="text-slate-500 dark:text-gray-400 text-sm">No devices connected on the local network.</p>
+                    <p className="text-slate-500 dark:text-gray-400 text-sm">No devices connected or paired.</p>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
@@ -1218,6 +1258,34 @@ function App() {
                         </button>
                       </div>
                     ))}
+
+                    {knownPeers.map(peer => {
+                      const isConnected = connectedPeers.some(p => p.name === peer.name);
+                      if (isConnected) return null;
+                      return (
+                        <div key={peer.device_id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-gray-800/50 rounded-xl border border-slate-100 dark:border-gray-800 group">
+                          <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-gray-600"></div>
+                            <div className="flex flex-col">
+                              <span className="font-medium text-slate-600 dark:text-gray-400 text-sm">{peer.name} <span className="opacity-70">(Offline)</span></span>
+                              <span className="text-slate-400 dark:text-gray-500 font-mono text-[10px] truncate max-w-[150px]">{peer.device_id}</span>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={async () => {
+                              try {
+                                await invoke("unpair_device", { deviceId: peer.device_id });
+                                setKnownPeers(prev => prev.filter(p => p.device_id !== peer.device_id));
+                              } catch(e) {}
+                            }}
+                            className="px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors md:opacity-0 md:group-hover:opacity-100 opacity-100"
+                            title="Unpair permanently"
+                          >
+                            Unpair
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1934,7 +2002,7 @@ function Tooltip({ children, text, side = "top" }: { children: React.ReactNode, 
   );
 }
 
-function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, deleteClip, requestUnlock, toggleLock, requestSetup, onPreviewImage }: { 
+function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, deleteClip, requestUnlock, toggleLock, requestSetup, onPreviewImage, downloadingClips }: { 
   clip: ClipItem, 
   copiedId: number | null, 
   hasMasterPassword: boolean,
@@ -1944,7 +2012,8 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
   requestUnlock: (id: number, action: 'copy' | 'unlock', autoPaste?: boolean) => void,
   toggleLock: (id: number, locked: boolean) => void,
   requestSetup: (id?: number) => void,
-  onPreviewImage: (base64: string) => Promise<void>
+  onPreviewImage: (base64: string) => Promise<void>,
+  downloadingClips: Set<string>
 }) {
 
   const isLocked = clip.is_locked;
@@ -1982,13 +2051,45 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
               <Key className="w-4 h-4 text-slate-400 dark:text-gray-500" />
               <span className="text-sm font-medium text-slate-500 dark:text-gray-400 select-none">Locked Content</span>
             </div>
+          ) : clip.has_attachment && downloadingClips.has(clip.content) ? (
+            <div className="flex flex-col items-center justify-center py-6 px-4 bg-slate-50 dark:bg-gray-800/50 rounded-xl border border-slate-200 dark:border-gray-700/50 animate-pulse">
+              <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+              <p className="text-sm font-medium text-slate-600 dark:text-gray-300">Syncing attachment...</p>
+              <p className="text-xs text-slate-400 dark:text-gray-500 mt-1">Downloading securely from peer</p>
+            </div>
+          ) : clip.has_attachment && clip.content_type !== "image" ? (
+            <div className="flex flex-col gap-3 p-4 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-gray-800 dark:to-gray-900 rounded-xl border border-slate-200 dark:border-gray-700/50">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 rounded-lg">
+                  <Network className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-gray-200">File Attachment</h3>
+                  <p className="text-xs text-slate-500 dark:text-gray-400 uppercase tracking-wider mt-0.5">{clip.content_type}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCopy(clip); }}
+                  className="flex-1 py-1.5 px-3 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium transition-colors shadow-sm"
+                >
+                  Copy to Clipboard
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (clip.attachment_path) openUrl(clip.attachment_path); }}
+                  className="flex-1 py-1.5 px-3 bg-white dark:bg-gray-800 hover:bg-slate-50 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 border border-slate-200 dark:border-gray-600 rounded-lg text-xs font-medium transition-colors"
+                >
+                  Reveal in Folder
+                </button>
+              </div>
+            </div>
           ) : clip.content_type === "image" ? (
             <Tooltip text="Double-click to paste image">
               <div 
                 className="relative rounded-lg overflow-hidden border border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img"
               >
                 <img 
-                  src={`data:image/webp;base64,${clip.content}`} 
+                  src={clip.has_attachment && clip.attachment_path ? convertFileSrc(clip.attachment_path) : `data:image/webp;base64,${clip.content}`} 
                   alt="Copied image" 
                   draggable={true}
                   className="max-h-48 object-contain transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"

@@ -9,7 +9,14 @@ use tauri::{AppHandle, Emitter};
 use crate::crypto::CryptoState;
 use crate::db::Database;
 use crate::settings::SettingsManager;
+use crate::storage::StorageManager;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Threshold constants for Data Plane ingestion routing.
+/// Text payloads up to this size are stored inline in SQLite.
+const _TEXT_INLINE_MAX: usize = 100 * 1024; // 100 KB
+/// Text payloads above this size are routed to the attachment Data Plane.
+const TEXT_ATTACHMENT_THRESHOLD: usize = 500 * 1024; // 500 KB
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn start_listener(
@@ -20,11 +27,26 @@ pub fn start_listener(
     ignore_next_update: Arc<AtomicBool>,
     network: Arc<crate::network::NetworkManager>,
 ) {
+    // Resolve the app data directory once for StorageManager
+    let app_data_dir = {
+        use tauri::Manager;
+        app_handle.path().app_data_dir().unwrap_or_default()
+    };
+
     std::thread::spawn(move || {
         let mut clipboard = match Clipboard::new() {
             Ok(c) => c,
             Err(e) => {
                 println!("Failed to init clipboard: {}", e);
+                return;
+            }
+        };
+
+        // Initialize StorageManager for writing attachments to disk
+        let storage = match StorageManager::new(app_data_dir.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("Failed to init StorageManager for clipboard watcher: {}", e);
                 return;
             }
         };
@@ -95,49 +117,117 @@ pub fn start_listener(
             }
 
             if let Some(payload) = new_payload {
-                // If image, we need to convert to base64 for frontend
-                let stored_payload = if ctype == "image" {
-                    use base64::{engine::general_purpose, Engine as _};
-                    general_purpose::STANDARD.encode(&payload).into_bytes()
-                } else {
-                    payload
-                };
+                // ── Threshold-based routing decision ──
+                // Images always go to the Data Plane attachment path.
+                // Large text (>500KB) is routed to attachments to prevent SQLite bloat.
+                // Small text (≤100KB) stays inline in the database for instant sync.
+                // Text between 100KB-500KB is kept inline (reasonable for SQLite).
+                let use_attachment = ctype == "image" || (ctype == "text" && payload.len() > TEXT_ATTACHMENT_THRESHOLD);
 
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(&stored_payload);
-                let current_hash = hasher.finalize().to_vec();
+                if use_attachment {
+                    // ── DATA PLANE PATH: Stream binary to disk ──
+                    let attachment_uuid = uuid::Uuid::new_v4().to_string();
 
-                if last_hash.as_ref() != Some(&current_hash) {
-                    last_hash = Some(current_hash);
-
-                    if ignore_next_update.swap(false, Ordering::SeqCst) {
-                        println!("Ignoring clipboard update triggered by CipherClip");
+                    // Write raw bytes to ~/.cipherclip/attachments/<uuid>.bin
+                    if let Err(e) = storage.save_chunk(&attachment_uuid, &payload, false) {
+                        println!("Failed to save attachment to disk: {}", e);
                         continue;
                     }
 
-                    println!("New clipboard {} detected!", ctype);
-
-                    let encrypted_payload = match crypto.encrypt(&stored_payload) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            println!("Encryption error: {}", e);
-                            continue;
-                        }
+                    // For the DB, we store only a lightweight metadata stub.
+                    // For images: base64 thumbnail preview; for large text: a truncated preview.
+                    let preview_payload = if ctype == "image" {
+                        use base64::{engine::general_purpose, Engine as _};
+                        general_purpose::STANDARD.encode(&payload).into_bytes()
+                    } else {
+                        // Store a truncated preview of the large text for the UI
+                        let preview_len = std::cmp::min(payload.len(), 512);
+                        let preview = String::from_utf8_lossy(&payload[..preview_len]);
+                        format!("[Large file: {} bytes]\n{}", payload.len(), preview).into_bytes()
                     };
 
-                    let limit = settings.get().history_limit;
+                    // Hash the full payload for dedup
+                    use sha2::{Digest, Sha256};
+                    let mut hasher = Sha256::new();
+                    hasher.update(&payload);
+                    let current_hash = hasher.finalize().to_vec();
 
-                    let db_guard = db.lock().unwrap();
-                    match db_guard.insert_clip(ctype, &encrypted_payload, limit) {
-                        Ok(_) => {
-                            // Tell frontend to refresh
-                            let _ = app_handle.emit("clipboard-update", ());
+                    if last_hash.as_ref() != Some(&current_hash) {
+                        last_hash = Some(current_hash);
 
-                            // Push to network peers!
-                            network.push_clip(ctype, &encrypted_payload);
+                        if ignore_next_update.swap(false, Ordering::SeqCst) {
+                            println!("Ignoring clipboard update triggered by CipherClip");
+                            // Clean up the attachment we just wrote
+                            let _ = storage.delete_attachment(&attachment_uuid);
+                            continue;
                         }
-                        Err(e) => println!("DB insert error: {}", e),
+
+                        println!("New clipboard {} detected (attachment path, {} bytes)", ctype, payload.len());
+
+                        let encrypted_payload = match crypto.encrypt(&preview_payload) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                println!("Encryption error: {}", e);
+                                let _ = storage.delete_attachment(&attachment_uuid);
+                                continue;
+                            }
+                        };
+
+                        let limit = settings.get().history_limit;
+
+                        let db_guard = db.lock().unwrap();
+                        match db_guard.insert_clip(ctype, &encrypted_payload, limit, true, Some(attachment_uuid.clone())) {
+                            Ok(_) => {
+                                let _ = app_handle.emit("clipboard-update", ());
+                                network.trigger_sync(db.clone());
+                            }
+                            Err(e) => {
+                                println!("DB insert error: {}", e);
+                                let _ = storage.delete_attachment(&attachment_uuid);
+                            }
+                        }
+                    } else {
+                        // Duplicate — clean up the attachment we just wrote
+                        let _ = storage.delete_attachment(&attachment_uuid);
+                    }
+                } else {
+                    // ── CONTROL PLANE PATH: Inline text in SQLite ──
+                    let stored_payload = payload;
+
+                    use sha2::{Digest, Sha256};
+                    let mut hasher = Sha256::new();
+                    hasher.update(&stored_payload);
+                    let current_hash = hasher.finalize().to_vec();
+
+                    if last_hash.as_ref() != Some(&current_hash) {
+                        last_hash = Some(current_hash);
+
+                        if ignore_next_update.swap(false, Ordering::SeqCst) {
+                            println!("Ignoring clipboard update triggered by CipherClip");
+                            continue;
+                        }
+
+                        println!("New clipboard {} detected (inline, {} bytes)", ctype, stored_payload.len());
+
+                        let encrypted_payload = match crypto.encrypt(&stored_payload) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                println!("Encryption error: {}", e);
+                                continue;
+                            }
+                        };
+
+                        let limit = settings.get().history_limit;
+
+                        let db_guard = db.lock().unwrap();
+                        match db_guard.insert_clip(ctype, &encrypted_payload, limit, false, None) {
+                            Ok(_) => {
+                                // Tell frontend to refresh
+                                let _ = app_handle.emit("clipboard-update", ());
+                                network.trigger_sync(db.clone());
+                            }
+                            Err(e) => println!("DB insert error: {}", e),
+                        }
                     }
                 }
             }
@@ -157,3 +247,4 @@ pub fn start_listener(
     // Mobile OSes do not allow continuous background clipboard polling.
     // The clipboard will be checked when the app is focused via frontend logic.
 }
+

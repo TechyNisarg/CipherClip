@@ -21,7 +21,10 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "scope": ["$APPDATA/com.cipherclip.core/attachments/*", "$APPDATA/attachments/*"]
+      }
     }
   },
   "bundle": {

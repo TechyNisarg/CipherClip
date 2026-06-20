@@ -1,5 +1,6 @@
 pub mod clipboard;
 pub mod crypto;
+pub mod storage;
 pub mod db;
 pub mod network;
 pub mod settings;
@@ -8,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, State, WindowEvent};
+use tauri::{Manager, State, WindowEvent, Emitter};
 
 use crypto::CryptoState;
 use db::Database;
@@ -23,22 +24,47 @@ pub struct AppState {
     pub network: Arc<NetworkManager>,
 }
 
+
 #[tauri::command]
-fn get_history(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
+fn get_known_devices(state: tauri::State<'_, AppState>) -> Result<Vec<crate::db::KnownPeer>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_known_peers().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn unpair_device(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, device_id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.remove_peer_sync_state(&device_id).map_err(|e| e.to_string())?;
+    let _ = app_handle.emit("peer_list_updated", ());
+    Ok(())
+}
+#[tauri::command]
+fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let clips = db.get_all_clips().map_err(|e| e.to_string())?;
 
     let mut result = Vec::new();
-    for (id, content_type, encrypted_payload, timestamp, pinned, is_locked) in clips {
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    
+    for (id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_uuid) in clips {
         if let Ok(decrypted) = state.crypto.decrypt(&encrypted_payload) {
             if let Ok(content_str) = String::from_utf8(decrypted) {
+                let mut abs_path: Option<String> = None;
+                if has_attachment {
+                    if let Some(uuid) = attachment_uuid {
+                        let path = app_dir.join("attachments").join(format!("{}.bin", uuid));
+                        abs_path = Some(path.to_string_lossy().to_string());
+                    }
+                }
                 result.push(serde_json::json!({
                     "id": id,
                     "content_type": content_type,
                     "content": content_str,
                     "timestamp": timestamp,
                     "pinned": pinned,
-                    "is_locked": is_locked
+                    "is_locked": is_locked,
+                    "has_attachment": has_attachment,
+                    "attachment_path": abs_path
                 }));
             }
         }
@@ -51,13 +77,7 @@ fn get_history(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, Str
 fn toggle_pin(state: State<'_, AppState>, id: i64, pinned: bool) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.toggle_pin(id, pinned).map_err(|e| e.to_string())?;
-
-    if let Ok(Some(hash)) = db.get_hash_by_id(id) {
-        let event_str = if pinned { format!("PIN:{}", hash) } else { format!("UNPIN:{}", hash) };
-        if let Ok(encrypted_event) = state.crypto.encrypt(event_str.as_bytes()) {
-            state.network.push_clip("EVENT", &encrypted_event);
-        }
-    }
+    state.network.trigger_sync(state.db.clone());
 
     Ok(())
 }
@@ -66,15 +86,7 @@ fn toggle_pin(state: State<'_, AppState>, id: i64, pinned: bool) -> Result<(), S
 fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.toggle_lock(id, is_locked).map_err(|e| e.to_string())?;
-
-    if let Ok(Some(hash)) = db.get_hash_by_id(id) {
-        if is_locked {
-            if let Ok(encrypted_event) = state.crypto.encrypt(format!("LOCK:{}", hash).as_bytes()) {
-                state.network.push_clip("EVENT", &encrypted_event);
-            }
-        }
-        // Per user request: unlocking must never sync, so we do nothing here if !is_locked
-    }
+    state.network.trigger_sync(state.db.clone());
 
     Ok(())
 }
@@ -83,33 +95,38 @@ fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Res
 fn delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.delete_clip(id).map_err(|e| e.to_string())?;
-
-    if let Ok(Some(hash)) = db.get_hash_by_id(id) {
-        let event_str = format!("DELETE:{}", hash);
-        if let Ok(encrypted_event) = state.crypto.encrypt(event_str.as_bytes()) {
-            state.network.push_clip("EVENT", &encrypted_event);
-        }
-    }
+    state.network.trigger_sync(state.db.clone());
 
     Ok(())
 }
 
 #[tauri::command]
-fn get_deleted_clips(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
+fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let clips = db.get_deleted_clips().map_err(|e| e.to_string())?;
 
     let mut result = Vec::new();
-    for (id, content_type, encrypted_payload, timestamp, pinned, is_locked) in clips {
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    
+    for (id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_uuid) in clips {
         if let Ok(decrypted) = state.crypto.decrypt(&encrypted_payload) {
             if let Ok(content_str) = String::from_utf8(decrypted) {
+                let mut abs_path: Option<String> = None;
+                if has_attachment {
+                    if let Some(uuid) = attachment_uuid {
+                        let path = app_dir.join("attachments").join(format!("{}.bin", uuid));
+                        abs_path = Some(path.to_string_lossy().to_string());
+                    }
+                }
                 result.push(serde_json::json!({
                     "id": id,
                     "content_type": content_type,
                     "content": content_str,
                     "timestamp": timestamp,
                     "pinned": pinned,
-                    "is_locked": is_locked
+                    "is_locked": is_locked,
+                    "has_attachment": has_attachment,
+                    "attachment_path": abs_path
                 }));
             }
         }
@@ -340,8 +357,7 @@ fn add_mobile_clip(state: State<'_, AppState>, text: String) -> Result<bool, Str
     let encrypted_payload = state.crypto.encrypt(&payload).map_err(|e| e.to_string())?;
     let limit = state.settings.get().history_limit;
 
-    db_guard.insert_clip("text", &encrypted_payload, limit).map_err(|e| e.to_string())?;
-    state.network.push_clip("text", &encrypted_payload);
+    db_guard.insert_clip("text", &encrypted_payload, limit, false, None).map_err(|e| e.to_string())?;
 
     Ok(true)
 }
@@ -366,7 +382,7 @@ fn set_ignore_next_update(state: State<'_, AppState>) {
 #[tauri::command]
 fn open_image_preview(base64_data: String) -> Result<(), String> {
     use base64::Engine;
-    use std::io::Write;
+    
     let data = base64::engine::general_purpose::STANDARD
         .decode(base64_data)
         .map_err(|e| e.to_string())?;
@@ -397,6 +413,40 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
             .arg(path)
             .spawn()
             .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn copy_attachment(path: String, content_type: String) -> Result<(), String> {
+    use clipboard_rs::{Clipboard, ClipboardContext, RustImageData, common::RustImage};
+
+    let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
+
+    if content_type == "image" {
+        // We use the `clipboard_rs` crate to parse the file into RGBA pixels
+        let rust_img = RustImageData::from_path(&path)
+            .map_err(|e| format!("Failed to parse image for clipboard: {}", e))?;
+            
+        ctx.set_image(rust_img).map_err(|e| format!("Failed to set image: {}", e))?;
+    } else {
+        // Convert the raw OS path into a standard file:// URI string.
+        // OS clipboards (Windows Explorer, macOS Finder) expect properly formatted URIs.
+        let file_uri = if path.starts_with("file://") {
+            path
+        } else {
+            #[cfg(windows)]
+            {
+                format!("file:///{}", path.replace("\\", "/"))
+            }
+            #[cfg(not(windows))]
+            {
+                format!("file://{}", path)
+            }
+        };
+
+        ctx.set_files(vec![file_uri]).map_err(|e| format!("Failed to set file clipboard: {}", e))?;
     }
 
     Ok(())
@@ -450,17 +500,25 @@ pub fn run() {
             let app_dir = app
                 .path()
                 .app_data_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
-            let db = Arc::new(Mutex::new(Database::new(app_dir.clone()).unwrap()));
-            let crypto = Arc::new(CryptoState::new(&app_dir).unwrap());
             let settings = Arc::new(SettingsManager::new(app_dir.clone()));
-            let network = Arc::new(NetworkManager::new(
-                app.handle().clone(),
-                crypto.clone(),
-                db.clone(),
-                settings.clone(),
-            ));
+            let db = Arc::new(Mutex::new(Database::new(app_dir.clone(), settings.get().device_id.clone()).unwrap()));
+            let crypto = Arc::new(CryptoState::new(&app_dir).unwrap());
+            let app_handle_for_cb = app.handle().clone();
+        let ui_callback: Arc<dyn Fn(&str, serde_json::Value) + Send + Sync> = Arc::new(move |event, payload| {
+            let _ = app_handle_for_cb.emit(event, payload);
+        });
+        
+        let app_data_dir = app.handle().path().app_data_dir().unwrap_or_default();
+        
+        let network = Arc::new(NetworkManager::new(
+            crypto.clone(),
+            db.clone(),
+            settings.clone(),
+            app_data_dir,
+            ui_callback,
+        ));
 
             let ignore_next_update = Arc::new(AtomicBool::new(false));
 
@@ -532,7 +590,9 @@ pub fn run() {
             paste_to_active_window,
             clear_history,
             set_ignore_next_update,
-            get_deleted_clips,
+            unpair_device,
+        get_known_devices,
+              get_deleted_clips,
             restore_clip,
             permanently_delete_clip,
             empty_recycle_bin,
@@ -544,10 +604,18 @@ pub fn run() {
             has_master_password,
             toggle_clip_lock,
             open_image_preview,
+            copy_attachment,
             get_connected_peers,
             disconnect_peer,
             clear_blocks
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    include!("tests/sync_protocol_tests.rs");
+    include!("tests/data_plane_tests.rs");
+    include!("tests/e2e_cluster_tests.rs");
 }

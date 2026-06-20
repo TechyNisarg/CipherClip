@@ -4,9 +4,14 @@ use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
 };
 use aes_gcm_siv::Aes256GcmSiv;
-use aes_gcm_siv::{Nonce as LegacyNonce, aead::Aead as LegacyAead, aead::KeyInit as LegacyKeyInit};
+use aes_gcm_siv::Nonce as LegacyNonce;
 use keyring::Entry;
 use std::sync::RwLock;
+use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
+use sha2::{Sha256, Digest};
+
+type HmacSha256 = Hmac<Sha256>;
 
 const KEYRING_SERVICE: &str = "cipherclip";
 const KEYRING_USER: &str = "local_device_key";
@@ -57,6 +62,28 @@ impl CryptoState {
             legacy_cipher: RwLock::new(legacy_cipher),
             raw_key: RwLock::new(key_bytes.clone()),
         })
+    }
+
+    pub fn get_sync_key_hash(&self) -> String {
+        let key = self.raw_key.read().unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(&*key);
+        hex::encode(hasher.finalize())
+    }
+
+    pub fn generate_sync_state_mac(&self, latest_event_uuid: &str) -> String {
+        let sync_key = self.raw_key.read().unwrap();
+        // 1. Derive Discovery Key via HKDF-SHA256
+        let hkdf = Hkdf::<Sha256>::new(Some(b"cipherclip_discovery"), &*sync_key);
+        let mut discovery_key = [0u8; 32];
+        hkdf.expand(b"udp_broadcast", &mut discovery_key).expect("HKDF expansion failed");
+
+        // 2. Generate HMAC of the latest event UUID
+        let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(&discovery_key).expect("HMAC can take key of any size");
+        mac.update(latest_event_uuid.as_bytes());
+        
+        // 3. Output as Hex
+        hex::encode(mac.finalize().into_bytes())
     }
 
     pub fn get_key(&self) -> Result<Vec<u8>, String> {

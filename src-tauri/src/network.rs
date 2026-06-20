@@ -1,10 +1,11 @@
+use std::path::PathBuf;
 use crate::crypto::CryptoState;
 use crate::db::Database;
 use local_ip_address::local_ip;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, UdpSocket, SocketAddr};
+use std::net::{TcpListener, UdpSocket, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::Emitter;
@@ -52,12 +53,13 @@ static NETWORK_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 impl NetworkManager {
     pub fn new(
-        app_handle: tauri::AppHandle,
         crypto: Arc<CryptoState>,
         db: Arc<Mutex<Database>>,
         settings: Arc<crate::settings::SettingsManager>,
+        app_data_dir: PathBuf,
+        ui_callback: Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>,
     ) -> Self {
-        let instance_id_str = rand::random::<u32>().to_string();
+        let instance_id_str = settings.get().device_id.clone();
         let peers: Arc<Mutex<HashMap<String, (Instant, String)>>> = Arc::new(Mutex::new(HashMap::new()));
         
         let blocked_ips_set = settings.get_blocked_ips().into_iter().collect();
@@ -71,6 +73,7 @@ impl NetworkManager {
         // 1. UDP Discovery Broadcaster
         let crypto_for_bc = crypto.clone();
         let instance_id_bc = instance_id_str.clone();
+        let db_bc = db.clone();
         thread::spawn(move || {
             // Create socket once outside the loop
             let socket = match UdpSocket::bind("0.0.0.0:0") {
@@ -96,8 +99,13 @@ impl NetworkManager {
                     hasher.update(&raw_key);
                     let key_hash = hex::encode(hasher.finalize());
                     
-                    let msg = format!("CIPHERCLIP_DISCOVER:{}:{}:{}:{}", key_hash, instance_id_bc, my_ip, device_name);
-                    let msg_bytes = msg.as_bytes();
+                    let latest_uuid = if let Ok(db) = db_bc.lock() {
+                        db.get_latest_event_uuid().unwrap_or(None).unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string())
+                    } else {
+                        "00000000-0000-0000-0000-000000000000".to_string()
+                    };
+                    let sync_mac = crypto_for_bc.generate_sync_state_mac(&latest_uuid);
+                    let msg = format!("CIPHERCLIP_DISCOVER:{}:{}:{}:{}:{}", key_hash, instance_id_bc, my_ip, device_name, sync_mac);                  let msg_bytes = msg.as_bytes();
 
                     // Send to global broadcast (works on most networks)
                     let _ = socket.send_to(msg_bytes, ("255.255.255.255", DISCOVERY_PORT));
@@ -123,6 +131,7 @@ impl NetworkManager {
         let crypto_for_listen = crypto.clone();
         let instance_id_listen = instance_id_str.clone();
         let settings_clone = settings.clone();
+        let db_listen = db.clone();
         thread::spawn(move || {
             let socket = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
                 Ok(s) => {
@@ -157,7 +166,7 @@ impl NetworkManager {
                                 if received_hash == expected_hash {
                                     let received_instance_id = parts[1]; // instance_id
                                     if received_instance_id != instance_id_listen {
-                                        let ip = parts[2].to_string(); // ip from the message
+                                        let _ip = parts[2].to_string(); // ip from the message
                                         let name = if parts.len() > 3 { parts[3].to_string() } else { "Unknown Device".to_string() };
                                         
                                         // Use the source address from the packet as the actual peer IP
@@ -171,8 +180,10 @@ impl NetworkManager {
                                         let mut p = peers_clone.lock().unwrap();
                                         let blocked = blocked_ips_clone.lock().unwrap();
                                         if !blocked.contains(&actual_peer_ip) {
-                                            // Use actual_peer_ip (from packet source) for TCP connections
-                                            p.insert(actual_peer_ip, (Instant::now(), name));
+                                            p.insert(actual_peer_ip, (Instant::now(), name.clone()));
+                                            if let Ok(db_l) = db_listen.lock() {
+                                                let _ = db_l.upsert_known_peer(received_instance_id, &name);
+                                            }
                                         }
                                         // Prune inactive peers (not seen in 45 seconds)
                                         p.retain(|_, (time, _)| time.elapsed().as_secs() < 45);
@@ -213,21 +224,24 @@ impl NetworkManager {
         });
 
         // 3. TCP Server for incoming clips
-        let crypto_tcp = crypto.clone();
+        let crypto_for_tcp = crypto.clone();
+        let crypto_tcp = crypto_for_tcp.clone();
         let blocked_ips_tcp = blocked_ips.clone();
         thread::spawn(move || {
             if let Ok(listener) = TcpListener::bind(("0.0.0.0", TCP_PORT)) {
                 for stream in listener.incoming() {
                     if let Ok(mut stream) = stream {
+                        let mut src_ip = String::new();
                         if let Ok(peer_addr) = stream.peer_addr() {
-                            let src_ip = peer_addr.ip().to_string();
+                            src_ip = peer_addr.ip().to_string();
                             if blocked_ips_tcp.lock().unwrap().contains(&src_ip) {
                                 continue;
                             }
                         }
                         let crypto_c = crypto_tcp.clone();
                         let db_c = db.clone();
-                        let app_c = app_handle.clone();
+                        let ui_callback_c = ui_callback.clone();
+        let app_data_dir_c = app_data_dir.clone();
 
                         thread::spawn(move || {
                             let mut type_len_buf = [0u8; 1];
@@ -246,46 +260,92 @@ impl NetworkManager {
                             if stream.read_exact(&mut len_buf).is_err() {
                                 return;
                             }
+                            
+                            // IF BIN_RES, len_buf is num_chunks
+                            if content_type == "BIN_RES" {
+                                let num_chunks = u32::from_be_bytes(len_buf);
+                                // Read the UUID first (we need it to save)
+                                let mut uuid_len_buf = [0u8; 4];
+                                if stream.read_exact(&mut uuid_len_buf).is_err() { return; }
+                                let uuid_len = u32::from_be_bytes(uuid_len_buf) as usize;
+                                let mut uuid_buf = vec![0u8; uuid_len];
+                                if stream.read_exact(&mut uuid_buf).is_err() { return; }
+                                let clip_uuid = String::from_utf8_lossy(&uuid_buf).to_string();
+
+                                if let Ok(storage) = crate::storage::StorageManager::new(app_data_dir_c.clone()) {
+                                    let _ = storage.save_chunk(&clip_uuid, &[], false); // clear file
+                                    let mut downloaded_bytes = 0;
+                                    for i in 0..num_chunks {
+                                        let mut chunk_len_buf = [0u8; 4];
+                                        if stream.read_exact(&mut chunk_len_buf).is_err() { break; }
+                                        let chunk_len = u32::from_be_bytes(chunk_len_buf) as usize;
+                                        if chunk_len > 10 * 1024 * 1024 { break; } // safety
+
+                                        let mut chunk_buf = vec![0u8; chunk_len];
+                                        if stream.read_exact(&mut chunk_buf).is_err() { break; }
+
+                                        if let Ok(decrypted) = crypto_c.decrypt(&chunk_buf) {
+                                            let _ = storage.save_chunk(&clip_uuid, &decrypted, true);
+                                            downloaded_bytes += decrypted.len();
+                                            ui_callback_c("download_progress", serde_json::json!({
+                                                "uuid": clip_uuid,
+                                                "progress": (i as f32 / num_chunks as f32) * 100.0,
+                                                "downloaded": downloaded_bytes
+                                            }));
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
+                                }
+                                return;
+                            }
+
                             let payload_len = u32::from_be_bytes(len_buf) as usize;
 
-                            // Protect against massive payloads crashing the app
                             if payload_len > 50 * 1024 * 1024 {
                                 return;
-                            } // max 50MB
+                            }
 
                             let mut payload = vec![0u8; payload_len];
                             if stream.read_exact(&mut payload).is_err() {
                                 return;
                             }
 
-                            // Ensure it actually decrypts cleanly with our local key before saving
                             if let Ok(decrypted) = crypto_c.decrypt(&payload) {
-                                if content_type == "EVENT" {
-                                    if let Ok(event_str) = String::from_utf8(decrypted) {
-                                        if let Ok(db_lock) = db_c.lock() {
-                                            if event_str.starts_with("PIN:") {
-                                                let hash = &event_str[4..];
-                                                let _ = db_lock.toggle_pin_by_hash(hash, true);
-                                                let _ = app_c.emit("clipboard-update", ());
-                                            } else if event_str.starts_with("UNPIN:") {
-                                                let hash = &event_str[6..];
-                                                let _ = db_lock.toggle_pin_by_hash(hash, false);
-                                                let _ = app_c.emit("clipboard-update", ());
-                                            } else if event_str.starts_with("LOCK:") {
-                                                let hash = &event_str[5..];
-                                                let _ = db_lock.toggle_lock_by_hash(hash, true);
-                                                let _ = app_c.emit("clipboard-update", ());
-                                            } else if event_str.starts_with("UNLOCK:") {
-                                                let hash = &event_str[7..];
-                                                let _ = db_lock.toggle_lock_by_hash(hash, false);
-                                                let _ = app_c.emit("clipboard-update", ());
-                                            } else if event_str.starts_with("DELETE:") {
-                                                let hash = &event_str[7..];
-                                                // Immunity from rule #2: Ignore if locked
-                                                if let Ok(is_locked) = db_lock.is_locked_by_hash(hash) {
-                                                    if !is_locked {
-                                                        let _ = db_lock.delete_clip_by_hash(hash);
-                                                        let _ = app_c.emit("clipboard-update", ());
+                                if content_type == "BIN_REQ" {
+                                    if let Ok(uuid) = String::from_utf8(decrypted) {
+                                        if let Ok(storage) = crate::storage::StorageManager::new(app_data_dir_c.clone()) {
+                                            let path = storage.get_attachment_path(&uuid);
+                                            if path.exists() {
+                                                if let Ok(metadata) = std::fs::metadata(&path) {
+                                                    let file_size = metadata.len();
+                                                    let num_chunks = ((file_size + 65535) / 65536) as u32;
+
+                                                    // Send BIN_RES header
+                                                    let res_type = b"BIN_RES";
+                                                    let mut header = Vec::new();
+                                                    header.push(res_type.len() as u8);
+                                                    header.extend_from_slice(res_type);
+                                                    header.extend_from_slice(&num_chunks.to_be_bytes());
+                                                    
+                                                    // Send UUID so receiver knows which file this is
+                                                    let uuid_bytes = uuid.as_bytes();
+                                                    header.extend_from_slice(&(uuid_bytes.len() as u32).to_be_bytes());
+                                                    header.extend_from_slice(uuid_bytes);
+                                                    
+                                                    let mut stream_clone = stream.try_clone().unwrap();
+                                                    if stream_clone.write_all(&header).is_ok() {
+                                                        let crypto_clone = crypto_c.clone();
+                                                        let _ = storage.read_attachment_stream(&uuid, |chunk| {
+                                                            if let Ok(encrypted_chunk) = crypto_clone.encrypt(chunk) {
+                                                                let mut chunk_packet = Vec::new();
+                                                                chunk_packet.extend_from_slice(&(encrypted_chunk.len() as u32).to_be_bytes());
+                                                                chunk_packet.extend_from_slice(&encrypted_chunk);
+                                                                stream_clone.write_all(&chunk_packet).map_err(|e| e.to_string())?;
+                                                            }
+                                                            Ok(())
+                                                        });
                                                     }
                                                 }
                                             }
@@ -294,16 +354,118 @@ impl NetworkManager {
                                     return;
                                 }
 
-                                if let Ok(db_lock) = db_c.lock() {
-                                    if let Ok(Some(latest)) = db_lock.get_latest_hash() {
-                                        if latest == payload {
-                                            return; // Avoid infinite loops
+                                if content_type == "SYNC_REQ" {
+                                    if let Ok(json_str) = String::from_utf8(decrypted) {
+                                        if let Ok(req_val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                            if let (Some(_device_id), Some(peer_sync_state_obj)) = (req_val["device_id"].as_str(), req_val["peer_sync_state"].as_object()) {
+                                                
+                                                if let Some(pushed_arr) = req_val["pushed_events"].as_array() {
+                                                    let mut pushed_events = Vec::new();
+                                                    for evt in pushed_arr {
+                                                        if let Ok(e) = serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
+                                                            pushed_events.push(e);
+                                                        }
+                                                    }
+                                                    if !pushed_events.is_empty() {
+                                                        let events_clone = pushed_events.clone();
+                                                        if let Ok(db_lock) = db_c.lock() {
+                                                            let _ = db_lock.apply_sync_events(pushed_events);
+                                                            let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
+                                                        }
+                                                        for e in events_clone {
+                                                            if e.has_attachment.unwrap_or(false) && e.payload.is_none() {
+                                                                let peer_ip = src_ip.to_string();
+                                                                let uuid = e.clip_uuid.clone();
+                                                                
+                                                                                                                        let c_crypto = crypto_c.clone();
+                                                        let c_dir = app_data_dir_c.clone();
+                                                        let c_cb = ui_callback_c.clone();
+                                                        std::thread::spawn(move || {
+                                                            let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
+                                                        });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                let mut peer_clocks = std::collections::HashMap::new();
+                                                for (k, v) in peer_sync_state_obj {
+                                                    if let Some(c) = v.as_i64() {
+                                                        peer_clocks.insert(k.clone(), c);
+                                                    }
+                                                }
+                                                
+                                                if let Ok(db_lock) = db_c.lock() {
+                                                    if let Ok(missing_events) = db_lock.get_missing_events(&peer_clocks, 50) {
+                                                        let res_payload = serde_json::json!({
+                                                            "events": missing_events
+                                                        }).to_string();
+                                                        
+                                                        if let Ok(res_enc) = crypto_c.encrypt(res_payload.as_bytes()) {
+                                                            let msg_type = b"SYNC_RES";
+                                                            let mut buf = Vec::new();
+                                                            buf.push(msg_type.len() as u8);
+                                                            buf.extend_from_slice(msg_type);
+                                                            buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
+                                                            buf.extend_from_slice(&res_enc);
+                                                            // We must send it back using a reverse connection since we read from this one!
+                                                            // Wait, stream is bidirectional! We can just write to stream.
+                                                            let mut write_stream = stream.try_clone().expect("clone stream failed");
+                                                            let _ = std::io::Write::write_all(&mut write_stream, &buf);
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
+                                    return;
+                                } else if content_type == "SYNC_RES" {
+                                    if let Ok(json_str) = String::from_utf8(decrypted) {
+                                        if let Ok(res_val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                            if let Some(events_arr) = res_val["events"].as_array() {
+                                                let mut events = Vec::new();
+                                                for evt in events_arr {
+                                                    if let Ok(e) = serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
+                                                        events.push(e);
+                                                    }
+                                                }
+                                                let events_clone = events.clone();
+                                                if let Ok(db_lock) = db_c.lock() {
+                                                    let _ = db_lock.apply_sync_events(events);
+                                                    let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
+                                                }
+                                                for e in events_clone {
+                                                    if e.has_attachment.unwrap_or(false) && e.payload.is_none() {
+                                                        let peer_ip = src_ip.to_string();
+                                                        let uuid = e.clip_uuid.clone();
+                                                        
+                                                                                                                let c_crypto = crypto_c.clone();
+                                                        let c_dir = app_data_dir_c.clone();
+                                                        let c_cb = ui_callback_c.clone();
+                                                        std::thread::spawn(move || {
+                                                            let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    return;
+                                }
 
-                                    // It decrypted cleanly, meaning the sender has the same Sync Key. Save it.
-                                    let _ = db_lock.insert_clip(&content_type, &payload, 100);
-                                    let _ = app_c.emit("clipboard-update", ());
+                                // Handle Legacy EVENT (if needed, but we don't send it anymore? We will just keep it to avoid crashing)
+                                if content_type == "EVENT" {
+                                    // Just ignore old EVENT protocol as we now use Sync Events via push/pull
+                                    return;
+                                }
+                                
+                                // Actually, for immediate push (push_clip), we could just rely on the sync protocol
+                                // by immediately generating a Sync Event in insert_clip, but push_clip expects legacy payload.
+                                // If content_type is TEXT or IMAGE (pushing clips)
+                                if let Ok(db_lock) = db_c.lock() {
+                                    // It decrypted cleanly. Save it using Event Sourcing via insert_clip.
+                                    let _ = db_lock.insert_clip(&content_type, &payload, 100, false, None);
+                                    let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
                                 }
                             }
                         });
@@ -315,31 +477,36 @@ impl NetworkManager {
         Self { peers, blocked_ips, crypto, instance_id: instance_id_str, settings }
     }
 
-    pub fn push_clip(&self, content_type: &str, encrypted_payload: &[u8]) {
+    
+    pub fn trigger_sync(&self, db: std::sync::Arc<std::sync::Mutex<crate::db::Database>>) {
         let peers: Vec<String> = self.peers.lock().unwrap().keys().cloned().collect();
         for peer_ip in peers {
-            thread::spawn({
-                let ct = content_type.to_string();
-                let payload = encrypted_payload.to_vec();
-                move || {
-                    if let Ok(mut stream) = TcpStream::connect((peer_ip.as_str(), TCP_PORT)) {
-                        let type_bytes = ct.as_bytes();
-                        let mut msg = Vec::new();
-                        msg.push(type_bytes.len() as u8);
-                        msg.extend_from_slice(type_bytes);
-
-                        let payload_len = payload.len() as u32;
-                        msg.extend_from_slice(&payload_len.to_be_bytes());
-                        msg.extend_from_slice(&payload);
-
-                        let _ = stream.write_all(&msg);
+            let db_clone = db.clone();
+            let crypto_clone = self.crypto.clone();
+            std::thread::spawn(move || {
+                if let Ok(mut stream) = std::net::TcpStream::connect((peer_ip.as_str(), TCP_PORT)) {
+                    if let Ok(db_l) = db_clone.lock() {
+                        if let Ok(map) = db_l.get_all_sync_states() {
+                            let payload = serde_json::json!({
+                                "device_id": db_l.device_id,
+                                "peer_sync_state": map
+                            }).to_string();
+                            if let Ok(encrypted) = crypto_clone.encrypt(payload.as_bytes()) {
+                                let msg_type = b"SYNC_REQ";
+                                let mut buf = Vec::new();
+                                buf.push(msg_type.len() as u8);
+                                buf.extend_from_slice(msg_type);
+                                buf.extend_from_slice(&(encrypted.len() as u32).to_be_bytes());
+                                buf.extend_from_slice(&encrypted);
+                                let _ = std::io::Write::write_all(&mut stream, &buf);
+                            }
+                        }
                     }
                 }
             });
         }
     }
-
-    pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
+pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
         let mut p = self.peers.lock().unwrap();
         p.retain(|_, (time, _)| time.elapsed().as_secs() < 45);
         p.iter()
@@ -386,4 +553,79 @@ impl NetworkManager {
             p.clear();
         }
     }
+}
+
+
+pub fn download_attachment(peer_ip: &str, uuid: &str, crypto: std::sync::Arc<crate::crypto::CryptoState>, app_data_dir: PathBuf, ui_callback: std::sync::Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>) -> Result<(), String> {
+    if let Ok(mut stream) = std::net::TcpStream::connect((peer_ip, TCP_PORT)) {
+        let req_str = uuid.to_string();
+        let req_bytes = req_str.as_bytes();
+        
+        let req_type = b"BIN_REQ";
+        let mut header = Vec::new();
+        header.push(req_type.len() as u8);
+        header.extend_from_slice(req_type);
+        header.extend_from_slice(&(req_bytes.len() as u32).to_be_bytes());
+        header.extend_from_slice(req_bytes);
+
+        // We don't encrypt the BIN_REQ payload currently, we just send it as raw bytes for simplicity, 
+        // wait! The server expects the payload to be encrypted by `crypto_c.decrypt(&payload)`.
+        // We must fetch crypto! We can't access it easily here without passing it.
+        // Actually, we can fetch it from AppState!
+        if let Ok(encrypted) = crypto.encrypt(req_bytes) {
+            let mut header = Vec::new();
+            header.push(req_type.len() as u8);
+            header.extend_from_slice(req_type);
+            header.extend_from_slice(&(encrypted.len() as u32).to_be_bytes());
+            header.extend_from_slice(&encrypted);
+
+            if stream.write_all(&header).is_ok() {
+                // The response is processed by the main TCP listener loop because we just wrote to stream!
+                // Wait, no. We initiated the connection, we are the client! The server writes back to this stream.
+                // We need to read from THIS stream!
+                let mut type_len_buf = [0u8; 1];
+                if stream.read_exact(&mut type_len_buf).is_ok() {
+                    let type_len = type_len_buf[0] as usize;
+                    let mut type_buf = vec![0u8; type_len];
+                    if stream.read_exact(&mut type_buf).is_ok() {
+                        let content_type = String::from_utf8_lossy(&type_buf).to_string();
+                        if content_type == "BIN_RES" {
+                            let mut len_buf = [0u8; 4];
+                            if stream.read_exact(&mut len_buf).is_ok() {
+                                let num_chunks = u32::from_be_bytes(len_buf);
+                                let mut uuid_len_buf = [0u8; 4];
+                                if stream.read_exact(&mut uuid_len_buf).is_ok() {
+                                    let uuid_len = u32::from_be_bytes(uuid_len_buf) as usize;
+                                    let mut uuid_buf = vec![0u8; uuid_len];
+                                    if stream.read_exact(&mut uuid_buf).is_ok() {
+                                        let clip_uuid = String::from_utf8_lossy(&uuid_buf).to_string();
+                                        if let Ok(storage) = crate::storage::StorageManager::new(app_data_dir.clone()) {
+                                            let _ = storage.save_chunk(&clip_uuid, &[], false);
+                                            let mut downloaded_bytes = 0;
+                                            for i in 0..num_chunks {
+                                                let mut chunk_len_buf = [0u8; 4];
+                                                if stream.read_exact(&mut chunk_len_buf).is_err() { break; }
+                                                let chunk_len = u32::from_be_bytes(chunk_len_buf) as usize;
+                                                if chunk_len > 10 * 1024 * 1024 { break; }
+                                                let mut chunk_buf = vec![0u8; chunk_len];
+                                                if stream.read_exact(&mut chunk_buf).is_err() { break; }
+
+                                                if let Ok(decrypted) = crypto.decrypt(&chunk_buf) {
+                                                    let _ = storage.save_chunk(&clip_uuid, &decrypted, true);
+                                                    downloaded_bytes += decrypted.len();
+                                                    ui_callback("download_progress", serde_json::json!({ "uuid": clip_uuid.clone(), "percentage": if num_chunks > 0 { (i as f64 / num_chunks as f64 * 100.0) as u32 } else { 100 } }));
+                                                } else { break; }
+                                            }
+                                            ui_callback("clipboard-update", serde_json::json!({}));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
