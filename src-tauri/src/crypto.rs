@@ -71,16 +71,16 @@ impl CryptoState {
         hex::encode(hasher.finalize())
     }
 
-    pub fn generate_sync_state_mac(&self, latest_event_uuid: &str) -> String {
+    pub fn generate_sync_state_mac(&self, payload: &str) -> String {
         let sync_key = self.raw_key.read().unwrap();
         // 1. Derive Discovery Key via HKDF-SHA256
         let hkdf = Hkdf::<Sha256>::new(Some(b"cipherclip_discovery"), &*sync_key);
         let mut discovery_key = [0u8; 32];
         hkdf.expand(b"udp_broadcast", &mut discovery_key).expect("HKDF expansion failed");
 
-        // 2. Generate HMAC of the latest event UUID
+        // 2. Generate HMAC of the payload
         let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(&discovery_key).expect("HMAC can take key of any size");
-        mac.update(latest_event_uuid.as_bytes());
+        mac.update(payload.as_bytes());
         
         // 3. Output as Hex
         hex::encode(mac.finalize().into_bytes())

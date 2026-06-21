@@ -1,7 +1,6 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use tauri::Manager;
+use std::path::PathBuf;
 
 pub struct StorageManager {
     pub attachments_dir: PathBuf,

@@ -418,6 +418,7 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn copy_attachment(path: String, content_type: String) -> Result<(), String> {
     use clipboard_rs::{Clipboard, ClipboardContext, RustImageData, common::RustImage};

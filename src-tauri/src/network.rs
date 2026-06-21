@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, UdpSocket, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tauri::Emitter;
+// use tauri::Emitter;
 
 const DISCOVERY_PORT: u16 = 45555;
 const TCP_PORT: u16 = 45556;
@@ -99,13 +99,18 @@ impl NetworkManager {
                     hasher.update(&raw_key);
                     let key_hash = hex::encode(hasher.finalize());
                     
-                    let latest_uuid = if let Ok(db) = db_bc.lock() {
-                        db.get_latest_event_uuid().unwrap_or(None).unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string())
+                    let latest_hlc = if let Ok(db) = db_bc.lock() {
+                        db.get_latest_hlc()
                     } else {
-                        "00000000-0000-0000-0000-000000000000".to_string()
+                        0
                     };
-                    let sync_mac = crypto_for_bc.generate_sync_state_mac(&latest_uuid);
-                    let msg = format!("CIPHERCLIP_DISCOVER:{}:{}:{}:{}:{}", key_hash, instance_id_bc, my_ip, device_name, sync_mac);                  let msg_bytes = msg.as_bytes();
+                    
+                    let hlc_str = if latest_hlc > 0 { latest_hlc.to_string() } else { String::new() };
+                    let msg_prefix = format!("CIPHERCLIP_DISCOVER:{}:{}:{}:{}:{}", key_hash, instance_id_bc, my_ip, device_name, hlc_str);
+                    
+                    let sync_mac = crypto_for_bc.generate_sync_state_mac(&msg_prefix);
+                    let msg = format!("{}:{}", msg_prefix, sync_mac);                  
+                    let msg_bytes = msg.as_bytes();
 
                     // Send to global broadcast (works on most networks)
                     let _ = socket.send_to(msg_bytes, ("255.255.255.255", DISCOVERY_PORT));
@@ -154,7 +159,7 @@ impl NetworkManager {
                     // Check for our protocol prefix (CIPHERCLIP_DISCOVER:)
                     if amt > prefix_len && &buf[0..prefix_len] == prefix {
                         let msg = String::from_utf8_lossy(&buf[prefix_len..amt]);
-                        let parts: Vec<&str> = msg.splitn(4, ':').collect();
+                        let parts: Vec<&str> = msg.split(':').collect();
                         if parts.len() >= 3 {
                             if let Ok(raw_key) = crypto_for_listen.get_key() {
                                 use sha2::{Digest, Sha256};
@@ -167,7 +172,18 @@ impl NetworkManager {
                                     let received_instance_id = parts[1]; // instance_id
                                     if received_instance_id != instance_id_listen {
                                         let _ip = parts[2].to_string(); // ip from the message
-                                        let name = if parts.len() > 3 { parts[3].to_string() } else { "Unknown Device".to_string() };
+                                        
+                                        // Handle legacy format vs new format
+                                        // Format: CIPHERCLIP_DISCOVER:key_hash:instance_id:ip:device_name:hlc_str:sync_mac
+                                        // Note: device_name might contain colons, so we reconstruct it
+                                        let is_v2 = parts.len() >= 6;
+                                        let name = if is_v2 {
+                                            parts[3..parts.len()-2].join(":")
+                                        } else if parts.len() > 3 { 
+                                            parts[3..].join(":") 
+                                        } else { 
+                                            "Unknown Device".to_string() 
+                                        };
                                         
                                         // Use the source address from the packet as the actual peer IP
                                         // This is more reliable than the IP reported in the message,
@@ -180,9 +196,55 @@ impl NetworkManager {
                                         let mut p = peers_clone.lock().unwrap();
                                         let blocked = blocked_ips_clone.lock().unwrap();
                                         if !blocked.contains(&actual_peer_ip) {
-                                            p.insert(actual_peer_ip, (Instant::now(), name.clone()));
+                                            p.insert(actual_peer_ip.clone(), (Instant::now(), name.clone()));
                                             if let Ok(db_l) = db_listen.lock() {
                                                 let _ = db_l.upsert_known_peer(received_instance_id, &name);
+                                            }
+                                            
+                                            // Handle catch-up sync if HMAC matches
+                                            if is_v2 {
+                                                let hlc_str = parts[parts.len()-2];
+                                                let sync_mac = parts[parts.len()-1];
+                                                let msg_prefix = format!("CIPHERCLIP_DISCOVER:{}:{}:{}:{}:{}", parts[0], parts[1], parts[2], name, hlc_str);
+                                                let expected_mac = crypto_for_listen.generate_sync_state_mac(&msg_prefix);
+                                                
+                                                if expected_mac == sync_mac {
+                                                    let peer_hlc = hlc_str.parse::<i64>().unwrap_or(0);
+                                                    
+                                                    // Start catch-up in a separate thread to avoid blocking UDP listener
+                                                    let catchup_ip = actual_peer_ip.clone();
+                                                    let crypto_catchup = crypto_for_listen.clone();
+                                                    let db_catchup = db_listen.clone();
+                                                    std::thread::spawn(move || {
+                                                        if let Ok(db) = db_catchup.lock() {
+                                                            if let Ok(events) = db.get_events_since_hlc(peer_hlc) {
+                                                                if events.is_empty() { return; }
+                                                                
+                                                                // Push events to peer in batches of 50
+                                                                let mut i = 0;
+                                                                while i < events.len() {
+                                                                    let batch = events[i..std::cmp::min(i + 50, events.len())].to_vec();
+                                                                    if let Ok(mut stream) = std::net::TcpStream::connect((catchup_ip.as_str(), TCP_PORT)) {
+                                                                        let payload = serde_json::json!({
+                                                                            "events": batch
+                                                                        }).to_string();
+                                                                        
+                                                                        if let Ok(res_enc) = crypto_catchup.encrypt(payload.as_bytes()) {
+                                                                            let msg_type = b"SYNC_RES";
+                                                                            let mut buf = Vec::new();
+                                                                            buf.push(msg_type.len() as u8);
+                                                                            buf.extend_from_slice(msg_type);
+                                                                            buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
+                                                                            buf.extend_from_slice(&res_enc);
+                                                                            let _ = stream.write_all(&buf);
+                                                                        }
+                                                                    }
+                                                                    i += 50;
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                }
                                             }
                                         }
                                         // Prune inactive peers (not seen in 45 seconds)

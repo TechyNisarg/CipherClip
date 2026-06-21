@@ -375,6 +375,44 @@ impl Database {
         ).optional()
     }
 
+    pub fn get_latest_hlc(&self) -> i64 {
+        self.conn.query_row(
+            "SELECT MAX(vector_clock) FROM event_log",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0)
+    }
+
+    pub fn get_events_since_hlc(&self, hlc_cursor: i64) -> SqlResult<Vec<SyncEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path 
+             FROM event_log e 
+             LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
+             WHERE e.vector_clock > ?1
+             ORDER BY e.vector_clock ASC"
+        )?;
+
+        let event_iter = stmt.query_map([hlc_cursor], |row| {
+            Ok(SyncEvent {
+                event_type: row.get(0)?,
+                clip_uuid: row.get(1)?,
+                device_id: row.get(2)?,
+                vector_clock: row.get(3)?,
+                timestamp: row.get(4)?,
+                content_type: row.get(5).ok(),
+                payload: row.get(6).ok(),
+                has_attachment: row.get(7).ok(),
+                attachment_path: row.get(8).ok(),
+            })
+        })?;
+
+        let mut events = Vec::new();
+        for event in event_iter {
+            if let Ok(evt) = event { events.push(evt); }
+        }
+        Ok(events)
+    }
+
     pub fn upsert_known_peer(&self, device_id: &str, name: &str) -> SqlResult<()> {
         let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
         self.conn.execute(
