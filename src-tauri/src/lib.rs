@@ -52,7 +52,16 @@ fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Resu
                 let mut abs_path: Option<String> = None;
                 if has_attachment {
                     if let Some(uuid) = attachment_uuid {
-                        let path = app_dir.join("attachments").join(format!("{}.bin", uuid));
+                        let mut path = app_dir.join("attachments").join(format!("{}.png", uuid));
+                        if !path.exists() {
+                            let legacy_path = app_dir.join("attachments").join(format!("{}.bin", uuid));
+                            if legacy_path.exists() {
+                                // Auto-migrate legacy .bin to .png so the browser and clipboard crates can detect the format
+                                let _ = std::fs::rename(&legacy_path, &path);
+                            } else {
+                                path = legacy_path;
+                            }
+                        }
                         abs_path = Some(path.to_string_lossy().to_string());
                     }
                 }

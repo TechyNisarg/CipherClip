@@ -19,6 +19,10 @@ impl StorageManager {
     }
 
     pub fn get_attachment_path(&self, uuid: &str) -> PathBuf {
+        self.attachments_dir.join(format!("{}.png", uuid))
+    }
+
+    pub fn get_legacy_attachment_path(&self, uuid: &str) -> PathBuf {
         self.attachments_dir.join(format!("{}.bin", uuid))
     }
 
@@ -38,7 +42,11 @@ impl StorageManager {
     pub fn delete_attachment(&self, uuid: &str) -> Result<(), String> {
         let path = self.get_attachment_path(uuid);
         if path.exists() {
-            fs::remove_file(path).map_err(|e| e.to_string())?;
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
+        let legacy_path = self.get_legacy_attachment_path(uuid);
+        if legacy_path.exists() {
+            fs::remove_file(&legacy_path).map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -47,7 +55,13 @@ impl StorageManager {
     where
         F: FnMut(&[u8]) -> Result<(), String>,
     {
-        let path = self.get_attachment_path(uuid);
+        let mut path = self.get_attachment_path(uuid);
+        if !path.exists() {
+            let legacy_path = self.get_legacy_attachment_path(uuid);
+            if legacy_path.exists() {
+                path = legacy_path;
+            }
+        }
         let mut file = File::open(&path).map_err(|e| e.to_string())?;
         let mut buffer = [0u8; 65536]; // 64KB chunks
         
