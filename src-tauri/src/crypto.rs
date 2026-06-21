@@ -86,6 +86,22 @@ impl CryptoState {
         hex::encode(mac.finalize().into_bytes())
     }
 
+    pub fn verify_sync_state_mac(&self, payload: &str, provided_mac_hex: &str) -> bool {
+        if let Ok(provided_mac) = hex::decode(provided_mac_hex) {
+            let sync_key = self.raw_key.read().unwrap();
+            let hkdf = Hkdf::<Sha256>::new(Some(b"cipherclip_discovery"), &*sync_key);
+            let mut discovery_key = [0u8; 32];
+            if hkdf.expand(b"udp_broadcast", &mut discovery_key).is_err() {
+                return false;
+            }
+            if let Ok(mut mac) = <HmacSha256 as hmac::Mac>::new_from_slice(&discovery_key) {
+                mac.update(payload.as_bytes());
+                return mac.verify_slice(&provided_mac).is_ok();
+            }
+        }
+        false
+    }
+
     pub fn get_key(&self) -> Result<Vec<u8>, String> {
         Ok(self.raw_key.read().unwrap().clone())
     }

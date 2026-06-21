@@ -453,6 +453,12 @@ async fn copy_attachment(path: String, content_type: String) -> Result<(), Strin
     Ok(())
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn copy_attachment(_path: String, _content_type: String) -> Result<(), String> {
+    Err("copy_attachment is not supported on this platform".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
