@@ -427,6 +427,21 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<Vec<u8>, String> {
+    use tauri::Manager;
+    let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
+    
+    let path = storage.get_attachment_path(&uuid);
+    if path.exists() {
+        std::fs::read(&path).map_err(|e| e.to_string())
+    } else {
+        let legacy = storage.get_legacy_attachment_path(&uuid);
+        std::fs::read(&legacy).map_err(|e| e.to_string())
+    }
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn copy_attachment(path: String, content_type: String) -> Result<(), String> {
@@ -597,6 +612,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_history,
             add_mobile_clip,
+            get_attachment_bytes,
             toggle_pin,
             delete_clip,
             get_settings,

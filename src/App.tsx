@@ -23,7 +23,33 @@ interface ClipItem {
   is_locked: boolean;
   has_attachment?: boolean;
   attachment_path?: string;
+  attachment_uuid?: string;
 }
+
+const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: string }) => {
+  const [src, setSrc] = useState<string>(clip.has_attachment ? '' : `data:image/webp;base64,${clip.content}`);
+
+  useEffect(() => {
+    if (clip.has_attachment && (clip.attachment_uuid || clip.attachment_path)) {
+      const uuid = clip.attachment_uuid || clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
+      if (uuid) {
+        invoke<number[]>("get_attachment_bytes", { uuid })
+          .then(bytes => {
+            const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
+            setSrc(URL.createObjectURL(blob));
+          })
+          .catch(e => {
+            console.error("Failed to load attachment image:", e);
+            if (clip.attachment_path) {
+              setSrc(convertFileSrc(clip.attachment_path));
+            }
+          });
+      }
+    }
+  }, [clip]);
+
+  return src ? <img src={src} alt="Copied image" draggable={true} className={className} /> : <div className={`animate-pulse bg-gray-200 dark:bg-gray-800 ${className}`} style={{width: 200, height: 100}}></div>;
+};
 
 function App() {
   const [clips, setClips] = useState<ClipItem[]>([]);
@@ -167,6 +193,44 @@ function App() {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const checkClipboard = async () => {
+      try {
+        const text = await readText();
+        if (text && text.trim().length > 0) {
+          const added = await invoke("add_mobile_clip", { text });
+          if (added) {
+            fetchHistory();
+          }
+        }
+      } catch(e) {
+        console.error("Failed to read mobile clipboard", e);
+      }
+    };
+
+    checkClipboard();
+
+    const handleFocus = () => {
+      checkClipboard();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        checkClipboard();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    }
+  }, [isMobile]);
 
   const [isScanning, setIsScanning] = useState(false);
   const [isScanningLoading, setIsScanningLoading] = useState(false);
@@ -2088,10 +2152,8 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
               <div 
                 className="relative rounded-lg overflow-hidden border border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img"
               >
-                <img 
-                  src={clip.has_attachment && clip.attachment_path ? convertFileSrc(clip.attachment_path) : `data:image/webp;base64,${clip.content}`} 
-                  alt="Copied image" 
-                  draggable={true}
+                <AttachmentImage 
+                  clip={clip}
                   className="max-h-48 object-contain transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
                 />
               </div>
