@@ -69,7 +69,8 @@ impl Database {
         let _ = conn.execute("ALTER TABLE clipboard_history ADD COLUMN payload_hash TEXT", ());
         let _ = conn.execute("ALTER TABLE clipboard_history ADD COLUMN has_attachment BOOLEAN NOT NULL DEFAULT 0", ());
         let _ = conn.execute("ALTER TABLE clipboard_history ADD COLUMN attachment_path TEXT", ());
-        let _ = conn.execute("ALTER TABLE clipboard_history ADD COLUMN uuid TEXT UNIQUE", ());
+        let _ = conn.execute("ALTER TABLE clipboard_history ADD COLUMN uuid TEXT", ());
+        let _ = conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clipboard_history_uuid ON clipboard_history(uuid)", ());
 
         // Event-sourcing CRDT tables
         conn.execute(
