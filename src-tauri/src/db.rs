@@ -254,6 +254,15 @@ impl Database {
             "UPDATE clipboard_history SET is_deleted = 1, pinned = 0 WHERE id = ?1",
             (id,),
         )?;
+        // Record a DELETE event so the deletion propagates during sync
+        if let Some(uuid) = self.get_uuid_by_id(id)? {
+            let vector_clock = self.get_next_hlc();
+            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+            let _ = self.conn.execute(
+                "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
+            );
+        }
         Ok(())
     }
 

@@ -501,8 +501,9 @@ function App() {
             const uuid = clip.attachment_uuid || clip.attachment_path.split(/[\/\\]/).pop()?.split('.')[0];
             const base64 = await invoke<string>("get_attachment_bytes", { uuid });
             const res = await fetch(`data:image/png;base64,${base64}`);
-            const blob = await res.blob();
-            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            const arrayBuffer = await res.arrayBuffer();
+            const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
+            await writeImage(tauriImg);
           } catch(e) {
             console.error("Failed to copy image to clipboard on mobile:", e);
             alert("Failed to copy image. Your device may not support copying images from this app directly.");
@@ -522,8 +523,9 @@ function App() {
         if (isMobile) {
           try {
             const res = await fetch(`data:image/webp;base64,${clip.content}`);
-            const blob = await res.blob();
-            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            const arrayBuffer = await res.arrayBuffer();
+            const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
+            await writeImage(tauriImg);
           } catch(e) {
             console.error("Failed to copy legacy image on mobile:", e);
             alert("Failed to copy image. Your device may not support copying images from this app directly.");

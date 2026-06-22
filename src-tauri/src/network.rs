@@ -3,15 +3,27 @@ use crate::crypto::CryptoState;
 use crate::db::Database;
 use local_ip_address::local_ip;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use std::io::{Read, Write};
-use std::net::{TcpListener, UdpSocket, SocketAddr};
+use std::net::{TcpListener, TcpStream, UdpSocket, SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 use std::thread;
 // use tauri::Emitter;
 
 const DISCOVERY_PORT: u16 = 45555;
 const TCP_PORT: u16 = 45556;
+const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const TCP_IO_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Create a TcpStream with connect + read/write timeouts to prevent blocking.
+fn connect_tcp(addr: (&str, u16)) -> std::io::Result<TcpStream> {
+    let sock_addr = (addr.0, addr.1).to_socket_addrs()?.next()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no address"))?;
+    let stream = TcpStream::connect_timeout(&sock_addr, TCP_CONNECT_TIMEOUT)?;
+    let _ = stream.set_read_timeout(Some(TCP_IO_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(TCP_IO_TIMEOUT));
+    Ok(stream)
+}
 
 pub struct NetworkManager {
     peers: Arc<Mutex<HashMap<String, (Instant, String)>>>,
@@ -216,32 +228,34 @@ impl NetworkManager {
                                                     let crypto_catchup = crypto_for_listen.clone();
                                                     let db_catchup = db_listen.clone();
                                                     std::thread::spawn(move || {
-                                                        if let Ok(db) = db_catchup.lock() {
-                                                            if let Ok(events) = db.get_events_since_hlc(peer_hlc) {
-                                                                if events.is_empty() { return; }
+                                                        let events = if let Ok(db) = db_catchup.lock() {
+                                                            db.get_events_since_hlc(peer_hlc).unwrap_or_default()
+                                                        } else {
+                                                            Vec::new()
+                                                        };
+                                                        
+                                                        if events.is_empty() { return; }
+                                                        
+                                                        // Push events to peer in batches of 50
+                                                        let mut i = 0;
+                                                        while i < events.len() {
+                                                            let batch = events[i..std::cmp::min(i + 50, events.len())].to_vec();
+                                                            if let Ok(mut stream) = connect_tcp((catchup_ip.as_str(), TCP_PORT)) {
+                                                                let payload = serde_json::json!({
+                                                                    "events": batch
+                                                                }).to_string();
                                                                 
-                                                                // Push events to peer in batches of 50
-                                                                let mut i = 0;
-                                                                while i < events.len() {
-                                                                    let batch = events[i..std::cmp::min(i + 50, events.len())].to_vec();
-                                                                    if let Ok(mut stream) = std::net::TcpStream::connect((catchup_ip.as_str(), TCP_PORT)) {
-                                                                        let payload = serde_json::json!({
-                                                                            "events": batch
-                                                                        }).to_string();
-                                                                        
-                                                                        if let Ok(res_enc) = crypto_catchup.encrypt(payload.as_bytes()) {
-                                                                            let msg_type = b"SYNC_RES";
-                                                                            let mut buf = Vec::new();
-                                                                            buf.push(msg_type.len() as u8);
-                                                                            buf.extend_from_slice(msg_type);
-                                                                            buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
-                                                                            buf.extend_from_slice(&res_enc);
-                                                                            let _ = stream.write_all(&buf);
-                                                                        }
-                                                                    }
-                                                                    i += 50;
+                                                                if let Ok(res_enc) = crypto_catchup.encrypt(payload.as_bytes()) {
+                                                                    let msg_type = b"SYNC_RES";
+                                                                    let mut buf = Vec::new();
+                                                                    buf.push(msg_type.len() as u8);
+                                                                    buf.extend_from_slice(msg_type);
+                                                                    buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
+                                                                    buf.extend_from_slice(&res_enc);
+                                                                    let _ = stream.write_all(&buf);
                                                                 }
                                                             }
+                                                            i += 50;
                                                         }
                                                     });
                                                 }
@@ -293,6 +307,9 @@ impl NetworkManager {
             if let Ok(listener) = TcpListener::bind(("0.0.0.0", TCP_PORT)) {
                 for stream in listener.incoming() {
                     if let Ok(mut stream) = stream {
+                        // Set timeouts on incoming connections to prevent handler threads from blocking
+                        let _ = stream.set_read_timeout(Some(TCP_IO_TIMEOUT));
+                        let _ = stream.set_write_timeout(Some(TCP_IO_TIMEOUT));
                         let mut src_ip = String::new();
                         if let Ok(peer_addr) = stream.peer_addr() {
                             src_ip = peer_addr.ip().to_string();
@@ -545,7 +562,7 @@ impl NetworkManager {
             let db_clone = db.clone();
             let crypto_clone = self.crypto.clone();
             std::thread::spawn(move || {
-                if let Ok(mut stream) = std::net::TcpStream::connect((peer_ip.as_str(), TCP_PORT)) {
+                if let Ok(mut stream) = connect_tcp((peer_ip.as_str(), TCP_PORT)) {
                     let map_opt = if let Ok(db_l) = db_clone.lock() {
                         let device_id = db_l.device_id.clone();
                         db_l.get_all_sync_states().ok().map(|map| (device_id, map))
@@ -621,7 +638,7 @@ pub fn get_connected_peers(&self) -> Vec<PeerInfo> {
 
 
 pub fn download_attachment(peer_ip: &str, uuid: &str, crypto: std::sync::Arc<crate::crypto::CryptoState>, app_data_dir: PathBuf, ui_callback: std::sync::Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>) -> Result<(), String> {
-    if let Ok(mut stream) = std::net::TcpStream::connect((peer_ip, TCP_PORT)) {
+    if let Ok(mut stream) = connect_tcp((peer_ip, TCP_PORT)) {
         let req_str = uuid.to_string();
         let req_bytes = req_str.as_bytes();
         
