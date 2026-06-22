@@ -1,4 +1,4 @@
-pub mod clipboard;
+﻿pub mod clipboard;
 pub mod crypto;
 pub mod storage;
 pub mod db;
@@ -428,7 +428,7 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<String, String> {
+async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<String, String> {
     use tauri::Manager;
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
@@ -436,10 +436,10 @@ fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<St
     
     let path = storage.get_attachment_path(&uuid);
     let bytes = if path.exists() {
-        std::fs::read(&path).map_err(|e| e.to_string())?
+        std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?
     } else {
         let legacy = storage.get_legacy_attachment_path(&uuid);
-        std::fs::read(&legacy).map_err(|e| e.to_string())?
+        std::fs::read(&legacy).map_err(|e| format!("File not found: {} and {}", path.display(), legacy.display()))?
     };
     
     Ok(STANDARD.encode(bytes))
@@ -454,13 +454,10 @@ async fn copy_attachment(path: String, content_type: String) -> Result<(), Strin
 
     if content_type == "image" {
         // We use the `clipboard_rs` crate to parse the file into RGBA pixels
-        let rust_img = RustImageData::from_path(&path)
-            .map_err(|e| format!("Failed to parse image for clipboard: {}", e))?;
-            
-        ctx.set_image(rust_img).map_err(|e| format!("Failed to set image: {}", e))?;
+        let img = RustImageData::from_path(&path).map_err(|e| format!("Failed to parse image: {}", e))?;
+        ctx.set_image(img).map_err(|e| format!("Failed to set image: {}", e))?;
     } else {
         // Convert the raw OS path into a standard file:// URI string.
-        // OS clipboards (Windows Explorer, macOS Finder) expect properly formatted URIs.
         let file_uri = if path.starts_with("file://") {
             path
         } else {
@@ -482,8 +479,13 @@ async fn copy_attachment(path: String, content_type: String) -> Result<(), Strin
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 #[tauri::command]
-async fn copy_attachment(_path: String, _content_type: String) -> Result<(), String> {
-    Err("copy_attachment is not supported on this platform".to_string())
+async fn copy_attachment(path: String, content_type: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    
+    // For images, we can copy the base64 or maybe the tauri-plugin-clipboard-manager does not support images on Android.
+    // Let's use the clipboard plugin to copy the path for now? No, we need to read the image bytes and try to write base64 if possible,
+    // or just return an error and handle it nicely on the frontend.
+    Err("Mobile attachment copy not yet implemented".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

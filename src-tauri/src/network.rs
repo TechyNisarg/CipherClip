@@ -456,25 +456,24 @@ impl NetworkManager {
                                                         peer_clocks.insert(k.clone(), c);
                                                     }
                                                 }
-                                                
-                                                if let Ok(db_lock) = db_c.lock() {
-                                                    if let Ok(missing_events) = db_lock.get_missing_events(&peer_clocks, 50) {
-                                                        let res_payload = serde_json::json!({
-                                                            "events": missing_events
-                                                        }).to_string();
-                                                        
-                                                        if let Ok(res_enc) = crypto_c.encrypt(res_payload.as_bytes()) {
-                                                            let msg_type = b"SYNC_RES";
-                                                            let mut buf = Vec::new();
-                                                            buf.push(msg_type.len() as u8);
-                                                            buf.extend_from_slice(msg_type);
-                                                            buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
-                                                            buf.extend_from_slice(&res_enc);
-                                                            // We must send it back using a reverse connection since we read from this one!
-                                                            // Wait, stream is bidirectional! We can just write to stream.
-                                                            let mut write_stream = stream.try_clone().expect("clone stream failed");
-                                                            let _ = std::io::Write::write_all(&mut write_stream, &buf);
-                                                        }
+                                                let missing_events_opt = if let Ok(db_lock) = db_c.lock() {
+                                                    db_lock.get_missing_events(&peer_clocks, 50).ok()
+                                                } else { None };
+
+                                                if let Some(missing_events) = missing_events_opt {
+                                                    let res_payload = serde_json::json!({
+                                                        "events": missing_events
+                                                    }).to_string();
+                                                    
+                                                    if let Ok(res_enc) = crypto_c.encrypt(res_payload.as_bytes()) {
+                                                        let msg_type = b"SYNC_RES";
+                                                        let mut buf = Vec::new();
+                                                        buf.push(msg_type.len() as u8);
+                                                        buf.extend_from_slice(msg_type);
+                                                        buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
+                                                        buf.extend_from_slice(&res_enc);
+                                                        let mut write_stream = stream.try_clone().expect("clone stream failed");
+                                                        let _ = std::io::Write::write_all(&mut write_stream, &buf);
                                                     }
                                                 }
                                             }
@@ -547,21 +546,24 @@ impl NetworkManager {
             let crypto_clone = self.crypto.clone();
             std::thread::spawn(move || {
                 if let Ok(mut stream) = std::net::TcpStream::connect((peer_ip.as_str(), TCP_PORT)) {
-                    if let Ok(db_l) = db_clone.lock() {
-                        if let Ok(map) = db_l.get_all_sync_states() {
-                            let payload = serde_json::json!({
-                                "device_id": db_l.device_id,
-                                "peer_sync_state": map
-                            }).to_string();
-                            if let Ok(encrypted) = crypto_clone.encrypt(payload.as_bytes()) {
-                                let msg_type = b"SYNC_REQ";
-                                let mut buf = Vec::new();
-                                buf.push(msg_type.len() as u8);
-                                buf.extend_from_slice(msg_type);
-                                buf.extend_from_slice(&(encrypted.len() as u32).to_be_bytes());
-                                buf.extend_from_slice(&encrypted);
-                                let _ = std::io::Write::write_all(&mut stream, &buf);
-                            }
+                    let map_opt = if let Ok(db_l) = db_clone.lock() {
+                        let device_id = db_l.device_id.clone();
+                        db_l.get_all_sync_states().ok().map(|map| (device_id, map))
+                    } else { None };
+
+                    if let Some((device_id, map)) = map_opt {
+                        let payload = serde_json::json!({
+                            "device_id": device_id,
+                            "peer_sync_state": map
+                        }).to_string();
+                        if let Ok(encrypted) = crypto_clone.encrypt(payload.as_bytes()) {
+                            let msg_type = b"SYNC_REQ";
+                            let mut buf = Vec::new();
+                            buf.push(msg_type.len() as u8);
+                            buf.extend_from_slice(msg_type);
+                            buf.extend_from_slice(&(encrypted.len() as u32).to_be_bytes());
+                            buf.extend_from_slice(&encrypted);
+                            let _ = std::io::Write::write_all(&mut stream, &buf);
                         }
                     }
                 }
