@@ -110,7 +110,7 @@ async fn toggle_pin(state: State<'_, AppState>, id: i64, pinned: bool) -> Result
 async fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Result<(), String> {
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        db.toggle_clip_lock(id, is_locked).map_err(|e| e.to_string())?;
+        db.toggle_lock(id, is_locked).map_err(|e| e.to_string())?;
     }
     state.network.trigger_sync(state.db.clone());
 
