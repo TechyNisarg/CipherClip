@@ -207,11 +207,22 @@ impl NetworkManager {
 
                                         let mut p = peers_clone.lock().unwrap();
                                         let blocked = blocked_ips_clone.lock().unwrap();
+                                        
+                                        // Prune inactive peers (not seen in 45 seconds)
+                                        p.retain(|_, (time, _)| time.elapsed().as_secs() < 45);
+                                        
                                         if !blocked.contains(&actual_peer_ip) {
                                             p.insert(actual_peer_ip.clone(), (Instant::now(), name.clone()));
-                                            if let Ok(db_l) = db_listen.lock() {
-                                                let _ = db_l.upsert_known_peer(received_instance_id, &name);
-                                            }
+                                            drop(blocked);
+                                            drop(p);
+                                            let db_upsert = db_listen.clone();
+                                            let upsert_id = received_instance_id.to_string();
+                                            let upsert_name = name.clone();
+                                            std::thread::spawn(move || {
+                                                if let Ok(db_l) = db_upsert.lock() {
+                                                    let _ = db_l.upsert_known_peer(&upsert_id, &upsert_name);
+                                                }
+                                            });
                                             
                                             // Handle catch-up sync if HMAC matches
                                             if is_v2 {
@@ -261,8 +272,6 @@ impl NetworkManager {
                                                 }
                                             }
                                         }
-                                        // Prune inactive peers (not seen in 45 seconds)
-                                        p.retain(|_, (time, _)| time.elapsed().as_secs() < 45);
                                     }
                                 }
                             }

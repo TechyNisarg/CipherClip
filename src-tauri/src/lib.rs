@@ -1,4 +1,4 @@
-﻿pub mod clipboard;
+pub mod clipboard;
 pub mod crypto;
 pub mod storage;
 pub mod db;
@@ -26,7 +26,7 @@ pub struct AppState {
 
 
 #[tauri::command]
-fn get_known_devices(state: tauri::State<'_, AppState>) -> Result<Vec<crate::db::KnownPeer>, String> {
+async fn get_known_devices(state: tauri::State<'_, AppState>) -> Result<Vec<crate::db::KnownPeer>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.get_known_peers().map_err(|e| e.to_string())
 }
@@ -39,7 +39,7 @@ fn unpair_device(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle
     Ok(())
 }
 #[tauri::command]
-fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let clips = db.get_all_clips().map_err(|e| e.to_string())?;
 
@@ -158,7 +158,7 @@ fn permanently_delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), St
 
 
 #[tauri::command]
-fn get_connected_peers(state: State<'_, AppState>) -> Result<Vec<crate::network::PeerInfo>, String> {
+async fn get_connected_peers(state: State<'_, AppState>) -> Result<Vec<crate::network::PeerInfo>, String> {
     Ok(state.network.get_connected_peers())
 }
 

@@ -509,21 +509,33 @@ impl Database {
 
             if should_apply {
                 if evt.event_type == "INSERT" || evt.event_type == "UPDATE" {
-                    if let (Some(ctype), Some(payload)) = (&evt.content_type, &evt.payload) {
-                        let has_attach = evt.has_attachment.unwrap_or(false);
-                        let attach_path = evt.attachment_path.clone();
-                        self.conn.execute(
-                            "INSERT INTO clipboard_history (uuid, content_type, encrypted_payload, timestamp, pinned, is_locked, is_deleted, has_attachment, attachment_path) 
-                             VALUES (?1, ?2, ?3, ?4, 0, 0, 0, ?5, ?6)
-                             ON CONFLICT(uuid) DO UPDATE SET 
-                             content_type=excluded.content_type, 
-                             encrypted_payload=excluded.encrypted_payload, 
-                             timestamp=excluded.timestamp,
-                             is_deleted=0,
-                             has_attachment=excluded.has_attachment,
-                             attachment_path=excluded.attachment_path",
-                            rusqlite::params![&evt.clip_uuid, ctype, payload, evt.timestamp, has_attach, attach_path],
-                        )?;
+                    let has_attach = evt.has_attachment.unwrap_or(false);
+                    let attach_path = evt.attachment_path.clone();
+
+                    if let Some(ctype) = &evt.content_type {
+                        if let Some(payload) = &evt.payload {
+                            // Normal clip with inline payload
+                            self.conn.execute(
+                                "INSERT INTO clipboard_history (uuid, content_type, encrypted_payload, timestamp, pinned, is_locked, is_deleted, has_attachment, attachment_path) 
+                                 VALUES (?1, ?2, ?3, ?4, 0, 0, 0, ?5, ?6)
+                                 ON CONFLICT(uuid) DO UPDATE SET 
+                                 content_type=excluded.content_type, 
+                                 encrypted_payload=excluded.encrypted_payload, 
+                                 timestamp=excluded.timestamp,
+                                 has_attachment=excluded.has_attachment,
+                                 attachment_path=excluded.attachment_path",
+                                rusqlite::params![&evt.clip_uuid, ctype, payload, evt.timestamp, has_attach, attach_path],
+                            )?;
+                        } else if has_attach {
+                            // Attachment-only clip: insert placeholder row so the clip appears in history.
+                            // encrypted_payload will be filled in after the BIN_REQ download completes.
+                            self.conn.execute(
+                                "INSERT INTO clipboard_history (uuid, content_type, encrypted_payload, timestamp, pinned, is_locked, is_deleted, has_attachment, attachment_path) 
+                                 VALUES (?1, ?2, NULL, ?3, 0, 0, 0, 1, ?4)
+                                 ON CONFLICT(uuid) DO NOTHING",
+                                rusqlite::params![&evt.clip_uuid, ctype, evt.timestamp, attach_path],
+                            )?;
+                        }
                     }
                 } else if evt.event_type == "DELETE" {
                     self.conn.execute(
