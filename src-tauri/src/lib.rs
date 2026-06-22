@@ -110,7 +110,7 @@ async fn toggle_pin(state: State<'_, AppState>, id: i64, pinned: bool) -> Result
 async fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Result<(), String> {
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        db.toggle_lock(id, is_locked).map_err(|e| e.to_string())?;
+        db.toggle_clip_lock(id, is_locked).map_err(|e| e.to_string())?;
     }
     state.network.trigger_sync(state.db.clone());
 
@@ -485,7 +485,7 @@ async fn copy_attachment(path: String, content_type: String) -> Result<(), Strin
     let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
 
     if content_type == "image" {
-        // We use the `clipboard_rs` crate to parse the file into RGBA pixels
+        // Robust image loading - clipboard_rs from_path now works with proper PNG files
         let img = RustImageData::from_path(&path).map_err(|e| format!("Failed to parse image: {}", e))?;
         ctx.set_image(img).map_err(|e| format!("Failed to set image: {}", e))?;
     } else {
