@@ -312,6 +312,7 @@ impl NetworkManager {
         let crypto_for_tcp = crypto.clone();
         let crypto_tcp = crypto_for_tcp.clone();
         let blocked_ips_tcp = blocked_ips.clone();
+        let peers_tcp = peers.clone();
         thread::spawn(move || {
             if let Ok(listener) = TcpListener::bind(("0.0.0.0", TCP_PORT)) {
                 for stream in listener.incoming() {
@@ -329,7 +330,8 @@ impl NetworkManager {
                         let crypto_c = crypto_tcp.clone();
                         let db_c = db.clone();
                         let ui_callback_c = ui_callback.clone();
-        let app_data_dir_c = app_data_dir.clone();
+                        let app_data_dir_c = app_data_dir.clone();
+                        let peers_c = peers_tcp.clone();
 
                         thread::spawn(move || {
                             let mut type_len_buf = [0u8; 1];
@@ -443,6 +445,11 @@ impl NetworkManager {
                                 }
 
                                 if content_type == "SYNC_REQ" {
+                                    if let Ok(mut p) = peers_c.lock() {
+                                        if let Some((time, _name)) = p.get_mut(&src_ip) {
+                                            *time = std::time::Instant::now();
+                                        }
+                                    }
                                     if let Ok(json_str) = String::from_utf8(decrypted) {
                                         if let Ok(req_val) = serde_json::from_str::<serde_json::Value>(&json_str) {
                                             if let (Some(_device_id), Some(peer_sync_state_obj)) = (req_val["device_id"].as_str(), req_val["peer_sync_state"].as_object()) {
@@ -507,6 +514,11 @@ impl NetworkManager {
                                     }
                                     return;
                                 } else if content_type == "SYNC_RES" {
+                                    if let Ok(mut p) = peers_c.lock() {
+                                        if let Some((time, _name)) = p.get_mut(&src_ip) {
+                                            *time = std::time::Instant::now();
+                                        }
+                                    }
                                     if let Ok(json_str) = String::from_utf8(decrypted) {
                                         if let Ok(res_val) = serde_json::from_str::<serde_json::Value>(&json_str) {
                                             if let Some(events_arr) = res_val["events"].as_array() {

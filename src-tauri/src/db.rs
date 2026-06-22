@@ -89,6 +89,27 @@ impl Database {
             (),
         )?;
 
+        // Ensure event_log has the newer columns for users upgrading from older versions
+        let _ = conn.execute("ALTER TABLE event_log ADD COLUMN has_attachment BOOLEAN DEFAULT 0", ());
+        let _ = conn.execute("ALTER TABLE event_log ADD COLUMN attachment_path TEXT", ());
+
+        // Event-sourcing CRDT tables
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS event_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                clip_uuid TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                vector_clock INTEGER NOT NULL,
+                timestamp INTEGER NOT NULL,
+                content_type TEXT,
+                payload BLOB,
+                has_attachment BOOLEAN DEFAULT 0,
+                attachment_path TEXT
+            )",
+            (),
+        )?;
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS peer_sync_state (
                 author_id TEXT NOT NULL,
@@ -301,15 +322,16 @@ impl Database {
         let mut stmt = self.conn.prepare("SELECT id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_path FROM clipboard_history WHERE is_deleted = 0 ORDER BY id DESC LIMIT 100")?;
         let clip_iter = stmt.query_map([], |row| {
             let encrypted_payload: Option<Vec<u8>> = row.get(2).ok();
+            let attachment_path: Option<String> = row.get(7).unwrap_or(None);
             Ok((
-                row.get(0)?,
-                row.get(1)?,
+                row.get(0).unwrap_or(0),
+                row.get(1).unwrap_or_else(|_| "text".to_string()),
                 encrypted_payload.unwrap_or_default(),
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
+                row.get(3).unwrap_or(0),
+                row.get(4).unwrap_or(false),
+                row.get(5).unwrap_or(false),
+                row.get(6).unwrap_or(false),
+                attachment_path,
             ))
         })?;
 
@@ -331,18 +353,19 @@ impl Database {
     }
 
     pub fn get_deleted_clips(&self) -> SqlResult<Vec<(i64, String, Vec<u8>, i64, bool, bool, bool, Option<String>)>> {
-        let mut stmt = self.conn.prepare("SELECT id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_path FROM clipboard_history WHERE is_deleted = 1 ORDER BY id DESC LIMIT 100")?;
+        let mut stmt = self.conn.prepare("SELECT id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_path FROM clipboard_history WHERE is_deleted = 1 ORDER BY id DESC")?;
         let clip_iter = stmt.query_map([], |row| {
             let encrypted_payload: Option<Vec<u8>> = row.get(2).ok();
+            let attachment_path: Option<String> = row.get(7).unwrap_or(None);
             Ok((
-                row.get(0)?,
-                row.get(1)?,
+                row.get(0).unwrap_or(0),
+                row.get(1).unwrap_or_else(|_| "text".to_string()),
                 encrypted_payload.unwrap_or_default(),
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
+                row.get(3).unwrap_or(0),
+                row.get(4).unwrap_or(false),
+                row.get(5).unwrap_or(false),
+                row.get(6).unwrap_or(false),
+                attachment_path,
             ))
         })?;
 
@@ -533,7 +556,7 @@ impl Database {
                             // encrypted_payload will be filled in after the BIN_REQ download completes.
                             self.conn.execute(
                                 "INSERT INTO clipboard_history (uuid, content_type, encrypted_payload, timestamp, pinned, is_locked, is_deleted, has_attachment, attachment_path) 
-                                 VALUES (?1, ?2, NULL, ?3, 0, 0, 0, 1, ?4)
+                                 VALUES (?1, ?2, x'', ?3, 0, 0, 0, 1, ?4)
                                  ON CONFLICT(uuid) DO NOTHING",
                                 rusqlite::params![&evt.clip_uuid, ctype, evt.timestamp, attach_path],
                             )?;
