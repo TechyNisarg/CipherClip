@@ -1,7 +1,7 @@
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use arboard::Clipboard;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use image::{codecs::webp::WebPEncoder, ImageEncoder, RgbaImage};
+use image::{codecs::png::PngEncoder, ImageEncoder, RgbaImage};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -84,7 +84,7 @@ pub fn start_listener(
             // If text didn't change or empty, try image
             if new_payload.is_none() {
                 if let Ok(image) = clipboard.get_image() {
-                    // Try compressing to WebP
+                    // Try compressing to PNG (better compatibility for clipboard copy)
                     if let Some(mut img) = RgbaImage::from_raw(
                         image.width as u32,
                         image.height as u32,
@@ -100,16 +100,15 @@ pub fn start_listener(
                                 .into_rgba8();
                         }
 
-                        let mut webp_bytes = Vec::new();
-                        // Quality 80 for reasonable compression
-                        let encoder = WebPEncoder::new_lossless(&mut webp_bytes);
+                        let mut png_bytes = Vec::new();
+                        let encoder = PngEncoder::new(&mut png_bytes);
                         if let Ok(_) = encoder.write_image(
                             img.as_raw(),
                             img.width() as u32,
                             img.height() as u32,
                             image::ExtendedColorType::Rgba8,
                         ) {
-                            new_payload = Some(webp_bytes);
+                            new_payload = Some(png_bytes);
                             ctype = "image";
                         }
                     }
@@ -128,7 +127,7 @@ pub fn start_listener(
                     // ── DATA PLANE PATH: Stream binary to disk ──
                     let attachment_uuid = uuid::Uuid::new_v4().to_string();
 
-                    // Write raw bytes to ~/.cipherclip/attachments/<uuid>.bin
+                    // Write raw bytes to ~/.cipherclip/attachments/<uuid>.png
                     if let Err(e) = storage.save_chunk(&attachment_uuid, &payload, false) {
                         println!("Failed to save attachment to disk: {}", e);
                         continue;
@@ -247,4 +246,3 @@ pub fn start_listener(
     // Mobile OSes do not allow continuous background clipboard polling.
     // The clipboard will be checked when the app is focused via frontend logic.
 }
-
