@@ -47,24 +47,24 @@ async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     
     for (id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_uuid) in clips {
-        if let Ok(decrypted) = state.crypto.decrypt(&encrypted_payload) {
-            if let Ok(content_str) = String::from_utf8(decrypted) {
-                let mut abs_path: Option<String> = None;
-                if has_attachment {
-                    if let Some(uuid) = attachment_uuid {
-                        let mut path = app_dir.join("attachments").join(format!("{}.png", uuid));
-                        if !path.exists() {
-                            let legacy_path = app_dir.join("attachments").join(format!("{}.bin", uuid));
-                            if legacy_path.exists() {
-                                // Auto-migrate legacy .bin to .png so the browser and clipboard crates can detect the format
-                                let _ = std::fs::rename(&legacy_path, &path);
-                            } else {
-                                path = legacy_path;
-                            }
-                        }
-                        abs_path = Some(path.to_string_lossy().to_string());
+        let mut abs_path: Option<String> = None;
+        if has_attachment {
+            if let Some(uuid) = &attachment_uuid {
+                let mut path = app_dir.join("attachments").join(format!("{}.png", uuid));
+                if !path.exists() {
+                    let legacy_path = app_dir.join("attachments").join(format!("{}.bin", uuid));
+                    if legacy_path.exists() {
+                        let _ = std::fs::rename(&legacy_path, &path);
+                    } else {
+                        path = legacy_path;
                     }
                 }
+                abs_path = Some(path.to_string_lossy().to_string());
+            }
+        }
+
+        if let Ok(decrypted) = state.crypto.decrypt(&encrypted_payload) {
+            if let Ok(content_str) = String::from_utf8(decrypted) {
                 result.push(serde_json::json!({
                     "id": id,
                     "content_type": content_type,
@@ -77,8 +77,8 @@ async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
                 }));
             }
         } else if has_attachment {
-            // Attachment-only clip — file download may be pending.
-            // Emit a minimal placeholder row so the UI shows something.
+            // Attachment-only clip — file download may be pending or it's a locally copied image without inline text.
+            // Emit a minimal placeholder row so the UI shows something and can render the image.
             result.push(serde_json::json!({
                 "id": id,
                 "content_type": content_type,
@@ -87,7 +87,7 @@ async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
                 "pinned": pinned,
                 "is_locked": is_locked,
                 "has_attachment": true,
-                "attachment_path": serde_json::Value::Null
+                "attachment_path": abs_path
             }));
         }
     }
@@ -137,15 +137,16 @@ async fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHan
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     
     for (id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_uuid) in clips {
+        let mut abs_path: Option<String> = None;
+        if has_attachment {
+            if let Some(uuid) = attachment_uuid {
+                let path = app_dir.join("attachments").join(format!("{}.bin", uuid));
+                abs_path = Some(path.to_string_lossy().to_string());
+            }
+        }
+
         if let Ok(decrypted) = state.crypto.decrypt(&encrypted_payload) {
             if let Ok(content_str) = String::from_utf8(decrypted) {
-                let mut abs_path: Option<String> = None;
-                if has_attachment {
-                    if let Some(uuid) = attachment_uuid {
-                        let path = app_dir.join("attachments").join(format!("{}.bin", uuid));
-                        abs_path = Some(path.to_string_lossy().to_string());
-                    }
-                }
                 result.push(serde_json::json!({
                     "id": id,
                     "content_type": content_type,
@@ -168,7 +169,7 @@ async fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHan
                 "pinned": pinned,
                 "is_locked": is_locked,
                 "has_attachment": true,
-                "attachment_path": serde_json::Value::Null
+                "attachment_path": abs_path
             }));
         }
     }
@@ -508,7 +509,7 @@ async fn copy_attachment(app_handle: tauri::AppHandle, path: String, content_typ
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 #[tauri::command]
-async fn copy_attachment(_path: String, _content_type: String) -> Result<(), String> {
+async fn copy_attachment(_app_handle: tauri::AppHandle, _path: String, _content_type: String) -> Result<(), String> {
     Err("copy_attachment is not supported on mobile".to_string())
 }
 
