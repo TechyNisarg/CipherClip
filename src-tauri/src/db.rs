@@ -300,10 +300,11 @@ impl Database {
         // Return 100 for rendering regardless of limit
         let mut stmt = self.conn.prepare("SELECT id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_path FROM clipboard_history WHERE is_deleted = 0 ORDER BY id DESC LIMIT 100")?;
         let clip_iter = stmt.query_map([], |row| {
+            let encrypted_payload: Option<Vec<u8>> = row.get(2).ok();
             Ok((
                 row.get(0)?,
                 row.get(1)?,
-                row.get(2)?,
+                encrypted_payload.unwrap_or_default(),
                 row.get(3)?,
                 row.get(4)?,
                 row.get(5)?,
@@ -332,10 +333,11 @@ impl Database {
     pub fn get_deleted_clips(&self) -> SqlResult<Vec<(i64, String, Vec<u8>, i64, bool, bool, bool, Option<String>)>> {
         let mut stmt = self.conn.prepare("SELECT id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_path FROM clipboard_history WHERE is_deleted = 1 ORDER BY id DESC LIMIT 100")?;
         let clip_iter = stmt.query_map([], |row| {
+            let encrypted_payload: Option<Vec<u8>> = row.get(2).ok();
             Ok((
                 row.get(0)?,
                 row.get(1)?,
-                row.get(2)?,
+                encrypted_payload.unwrap_or_default(),
                 row.get(3)?,
                 row.get(4)?,
                 row.get(5)?,

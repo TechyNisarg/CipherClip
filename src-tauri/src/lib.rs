@@ -32,7 +32,7 @@ async fn get_known_devices(state: tauri::State<'_, AppState>) -> Result<Vec<crat
 }
 
 #[tauri::command]
-fn unpair_device(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, device_id: String) -> Result<(), String> {
+async fn unpair_device(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, device_id: String) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.remove_peer_sync_state(&device_id).map_err(|e| e.to_string())?;
     let _ = app_handle.emit("peer_list_updated", ());
@@ -76,6 +76,19 @@ async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
                     "attachment_path": abs_path
                 }));
             }
+        } else if has_attachment {
+            // Attachment-only clip — file download may be pending.
+            // Emit a minimal placeholder row so the UI shows something.
+            result.push(serde_json::json!({
+                "id": id,
+                "content_type": content_type,
+                "content": "",
+                "timestamp": timestamp,
+                "pinned": pinned,
+                "is_locked": is_locked,
+                "has_attachment": true,
+                "attachment_path": serde_json::Value::Null
+            }));
         }
     }
 
@@ -83,34 +96,40 @@ async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
 }
 
 #[tauri::command]
-fn toggle_pin(state: State<'_, AppState>, id: i64, pinned: bool) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.toggle_pin(id, pinned).map_err(|e| e.to_string())?;
+async fn toggle_pin(state: State<'_, AppState>, id: i64, pinned: bool) -> Result<(), String> {
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.toggle_pin(id, pinned).map_err(|e| e.to_string())?;
+    }
     state.network.trigger_sync(state.db.clone());
 
     Ok(())
 }
 
 #[tauri::command]
-fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.toggle_lock(id, is_locked).map_err(|e| e.to_string())?;
+async fn toggle_clip_lock(state: State<'_, AppState>, id: i64, is_locked: bool) -> Result<(), String> {
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.toggle_lock(id, is_locked).map_err(|e| e.to_string())?;
+    }
     state.network.trigger_sync(state.db.clone());
 
     Ok(())
 }
 
 #[tauri::command]
-fn delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.delete_clip(id).map_err(|e| e.to_string())?;
+async fn delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.delete_clip(id).map_err(|e| e.to_string())?;
+    }
     state.network.trigger_sync(state.db.clone());
 
     Ok(())
 }
 
 #[tauri::command]
-fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+async fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let clips = db.get_deleted_clips().map_err(|e| e.to_string())?;
 
@@ -138,6 +157,19 @@ fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
                     "attachment_path": abs_path
                 }));
             }
+        } else if has_attachment {
+            // Attachment-only clip — file download may be pending.
+            // Emit a minimal placeholder row so the UI shows something.
+            result.push(serde_json::json!({
+                "id": id,
+                "content_type": content_type,
+                "content": "",
+                "timestamp": timestamp,
+                "pinned": pinned,
+                "is_locked": is_locked,
+                "has_attachment": true,
+                "attachment_path": serde_json::Value::Null
+            }));
         }
     }
 
@@ -145,13 +177,13 @@ fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
 }
 
 #[tauri::command]
-fn restore_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+async fn restore_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.restore_clip(id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn permanently_delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+async fn permanently_delete_clip(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.permanently_delete_clip(id).map_err(|e| e.to_string())
 }
@@ -163,19 +195,19 @@ async fn get_connected_peers(state: State<'_, AppState>) -> Result<Vec<crate::ne
 }
 
 #[tauri::command]
-fn disconnect_peer(state: State<'_, AppState>, ip: String) -> Result<(), String> {
+async fn disconnect_peer(state: State<'_, AppState>, ip: String) -> Result<(), String> {
     state.network.disconnect_peer(&ip);
     Ok(())
 }
 
 #[tauri::command]
-fn clear_blocks(state: State<'_, AppState>) -> Result<(), String> {
+async fn clear_blocks(state: State<'_, AppState>) -> Result<(), String> {
     state.network.clear_blocks();
     Ok(())
 }
 
 #[tauri::command]
-fn empty_recycle_bin(state: State<'_, AppState>) -> Result<(), String> {
+async fn empty_recycle_bin(state: State<'_, AppState>) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.empty_recycle_bin().map_err(|e| e.to_string())
 }
@@ -479,13 +511,8 @@ async fn copy_attachment(path: String, content_type: String) -> Result<(), Strin
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 #[tauri::command]
-async fn copy_attachment(path: String, content_type: String, app_handle: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_clipboard_manager::ClipboardExt;
-    
-    // For images, we can copy the base64 or maybe the tauri-plugin-clipboard-manager does not support images on Android.
-    // Let's use the clipboard plugin to copy the path for now? No, we need to read the image bytes and try to write base64 if possible,
-    // or just return an error and handle it nicely on the frontend.
-    Err("Mobile attachment copy not yet implemented".to_string())
+async fn copy_attachment(_path: String, _content_type: String) -> Result<(), String> {
+    Err("copy_attachment is not supported on mobile".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
