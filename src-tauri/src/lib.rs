@@ -428,18 +428,21 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<Vec<u8>, String> {
+fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<String, String> {
     use tauri::Manager;
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
     
     let path = storage.get_attachment_path(&uuid);
-    if path.exists() {
-        std::fs::read(&path).map_err(|e| e.to_string())
+    let bytes = if path.exists() {
+        std::fs::read(&path).map_err(|e| e.to_string())?
     } else {
         let legacy = storage.get_legacy_attachment_path(&uuid);
-        std::fs::read(&legacy).map_err(|e| e.to_string())
-    }
+        std::fs::read(&legacy).map_err(|e| e.to_string())?
+    };
+    
+    Ok(STANDARD.encode(bytes))
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

@@ -33,10 +33,9 @@ const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: strin
     if (clip.has_attachment && (clip.attachment_uuid || clip.attachment_path)) {
       const uuid = clip.attachment_uuid || clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
-        invoke<number[]>("get_attachment_bytes", { uuid })
-          .then(bytes => {
-            const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
-            setSrc(URL.createObjectURL(blob));
+        invoke<string>("get_attachment_bytes", { uuid })
+          .then(base64 => {
+            setSrc(`data:image/png;base64,${base64}`);
           })
           .catch(e => {
             console.error("Failed to load attachment image:", e);

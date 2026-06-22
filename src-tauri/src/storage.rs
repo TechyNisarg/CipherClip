@@ -31,6 +31,7 @@ impl StorageManager {
         let mut file = fs::OpenOptions::new()
             .create(true)
             .append(append)
+            .truncate(!append)
             .write(true)
             .open(&path)
             .map_err(|e| e.to_string())?;
