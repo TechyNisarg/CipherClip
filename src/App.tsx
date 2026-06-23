@@ -532,8 +532,17 @@ function App() {
             const base64 = await invoke<string>("get_attachment_bytes", { uuid });
             const res = await fetch(`data:image/png;base64,${base64}`);
             const arrayBuffer = await res.arrayBuffer();
-            const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-            await writeImage(tauriImg);
+            
+            try {
+              const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
+              await writeImage(tauriImg);
+            } catch(e) {
+              console.error("Plugin writeImage failed, falling back to navigator", e);
+              const blob = new Blob([arrayBuffer], { type: 'image/png' });
+              await navigator.clipboard.write([
+                new ClipboardItem({ [blob.type]: blob })
+              ]);
+            }
           } catch(e) {
             console.error("Failed to copy image to clipboard on mobile:", e);
             alert("Failed to copy image. Your device may not support copying images from this app directly.");
@@ -555,8 +564,17 @@ function App() {
           try {
             const res = await fetch(`data:image/webp;base64,${clip.content}`);
             const arrayBuffer = await res.arrayBuffer();
-            const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-            await writeImage(tauriImg);
+            
+            try {
+              const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
+              await writeImage(tauriImg);
+            } catch(e) {
+              console.error("Plugin writeImage failed, falling back to navigator", e);
+              const blob = new Blob([arrayBuffer], { type: 'image/webp' });
+              await navigator.clipboard.write([
+                new ClipboardItem({ [blob.type]: blob })
+              ]);
+            }
           } catch(e) {
             console.error("Failed to copy legacy image on mobile:", e);
             alert("Failed to copy image. Your device may not support copying images from this app directly.");
@@ -2212,7 +2230,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
               >
                 <AttachmentImage 
                   clip={clip}
-                  className="max-h-48 object-contain transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
+                  className="w-full h-full object-cover max-h-48 transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
                 />
               </div>
             </Tooltip>
