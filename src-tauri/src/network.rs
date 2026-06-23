@@ -605,9 +605,13 @@ impl NetworkManager {
                     } else { None };
 
                     if let Some((device_id, map)) = map_opt {
+                        let pushed_events = if let Ok(db_l) = db_clone.lock() {
+                            db_l.get_recent_events(50).unwrap_or_default()
+                        } else { vec![] };
                         let payload = serde_json::json!({
                             "device_id": device_id,
-                            "peer_sync_state": map
+                            "peer_sync_state": map,
+                            "pushed_events": pushed_events
                         }).to_string();
                         if let Ok(encrypted) = crypto_clone.encrypt(payload.as_bytes()) {
                             let msg_type = b"SYNC_REQ";

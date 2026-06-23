@@ -28,8 +28,10 @@ interface ClipItem {
 
 const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: string }) => {
   const [src, setSrc] = useState<string>(clip.has_attachment ? '' : `data:image/webp;base64,${clip.content}`);
+  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
+    setHasError(false);
     if (clip.has_attachment && (clip.attachment_uuid || clip.attachment_path)) {
       const uuid = clip.attachment_uuid || clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
@@ -47,7 +49,19 @@ const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: strin
     }
   }, [clip]);
 
-  return src ? <img src={src} alt="Copied image" draggable={true} className={className} /> : <div className={`animate-pulse bg-gray-200 dark:bg-gray-800 ${className}`} style={{width: 200, height: 100}}></div>;
+  return (src && !hasError) ? (
+    <img 
+      src={src} 
+      alt="" 
+      draggable={true} 
+      className={className} 
+      onError={() => setHasError(true)}
+    />
+  ) : (
+    <div className={`flex flex-col items-center justify-center animate-pulse bg-slate-200 dark:bg-gray-800 rounded-lg ${className}`} style={{width: 200, height: 100}}>
+      <span className="text-xs text-slate-500 font-medium px-2 text-center">Loading Image...</span>
+    </div>
+  );
 };
 
 function App() {
@@ -507,6 +521,7 @@ function App() {
           } catch(e) {
             console.error("Failed to copy image to clipboard on mobile:", e);
             alert("Failed to copy image. Your device may not support copying images from this app directly.");
+            return;
           }
         } else {
           await invoke("copy_attachment", { 
@@ -529,6 +544,7 @@ function App() {
           } catch(e) {
             console.error("Failed to copy legacy image on mobile:", e);
             alert("Failed to copy image. Your device may not support copying images from this app directly.");
+            return;
           }
         } else {
           const canvas = document.createElement('canvas');

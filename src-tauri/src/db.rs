@@ -36,6 +36,8 @@ pub struct SyncEvent {
     pub payload: Option<Vec<u8>>,
     pub has_attachment: Option<bool>,
     pub attachment_path: Option<String>,
+    pub pinned: Option<bool>,
+    pub is_locked: Option<bool>,
 }
 
 impl Database {
@@ -442,7 +444,7 @@ impl Database {
 
     pub fn get_events_since_hlc(&self, hlc_cursor: i64) -> SqlResult<Vec<SyncEvent>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path 
+            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path, c.pinned, c.is_locked 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              WHERE e.vector_clock > ?1
@@ -460,6 +462,8 @@ impl Database {
                 payload: row.get(6).ok(),
                 has_attachment: row.get(7).ok(),
                 attachment_path: row.get(8).ok(),
+                pinned: row.get(9).ok(),
+                is_locked: row.get(10).ok(),
             })
         })?;
 
@@ -558,29 +562,39 @@ impl Database {
                 if evt.event_type == "INSERT" || evt.event_type == "UPDATE" {
                     let has_attach = evt.has_attachment.unwrap_or(false);
                     let attach_path = evt.attachment_path.clone();
+                    let is_pinned = evt.pinned.unwrap_or(false);
+                    let is_locked = evt.is_locked.unwrap_or(false);
 
                     if let Some(ctype) = &evt.content_type {
                         if let Some(payload) = &evt.payload {
                             // Normal clip with inline payload
                             self.conn.execute(
                                 "INSERT INTO clipboard_history (uuid, content_type, encrypted_payload, timestamp, pinned, is_locked, is_deleted, has_attachment, attachment_path) 
-                                 VALUES (?1, ?2, ?3, ?4, 0, 0, 0, ?5, ?6)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)
                                  ON CONFLICT(uuid) DO UPDATE SET 
                                  content_type=excluded.content_type, 
                                  encrypted_payload=excluded.encrypted_payload, 
                                  timestamp=excluded.timestamp,
+                                 pinned=excluded.pinned,
+                                 is_locked=excluded.is_locked,
                                  has_attachment=excluded.has_attachment,
                                  attachment_path=excluded.attachment_path",
-                                rusqlite::params![&evt.clip_uuid, ctype, payload, evt.timestamp, has_attach, attach_path],
+                                rusqlite::params![&evt.clip_uuid, ctype, payload, evt.timestamp, is_pinned, is_locked, has_attach, attach_path],
                             )?;
                         } else if has_attach {
                             // Attachment-only clip: insert placeholder row so the clip appears in history.
                             // encrypted_payload will be filled in after the BIN_REQ download completes.
                             self.conn.execute(
                                 "INSERT INTO clipboard_history (uuid, content_type, encrypted_payload, timestamp, pinned, is_locked, is_deleted, has_attachment, attachment_path) 
-                                 VALUES (?1, ?2, x'', ?3, 0, 0, 0, 1, ?4)
-                                 ON CONFLICT(uuid) DO NOTHING",
-                                rusqlite::params![&evt.clip_uuid, ctype, evt.timestamp, attach_path],
+                                 VALUES (?1, ?2, x'', ?3, ?4, ?5, 0, ?6, ?7)
+                                 ON CONFLICT(uuid) DO UPDATE SET 
+                                 content_type=excluded.content_type, 
+                                 timestamp=excluded.timestamp,
+                                 pinned=excluded.pinned,
+                                 is_locked=excluded.is_locked,
+                                 has_attachment=excluded.has_attachment,
+                                 attachment_path=excluded.attachment_path",
+                                rusqlite::params![&evt.clip_uuid, ctype, evt.timestamp, is_pinned, is_locked, has_attach, attach_path],
                             )?;
                         }
                     }
@@ -604,12 +618,12 @@ impl Database {
 
     pub fn get_missing_events(&self, peer_clocks: &std::collections::HashMap<String, i64>, limit: i64) -> SqlResult<Vec<SyncEvent>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path 
+            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path, c.pinned, c.is_locked 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
-             ORDER BY e.vector_clock ASC"
+             ORDER BY e.timestamp ASC"
         )?;
-
+        
         let event_iter = stmt.query_map([], |row| {
             Ok(SyncEvent {
                 event_type: row.get(0)?,
@@ -621,6 +635,8 @@ impl Database {
                 payload: row.get(6).ok(),
                 has_attachment: row.get(7).ok(),
                 attachment_path: row.get(8).ok(),
+                pinned: row.get(9).ok(),
+                is_locked: row.get(10).ok(),
             })
         })?;
 
@@ -647,7 +663,7 @@ impl Database {
 
     pub fn get_recent_events(&self, limit: i64) -> SqlResult<Vec<SyncEvent>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path 
+            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path, c.pinned, c.is_locked 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              WHERE e.device_id = ?1
@@ -665,6 +681,8 @@ impl Database {
                 payload: row.get(6).ok(),
                 has_attachment: row.get(7).ok(),
                 attachment_path: row.get(8).ok(),
+                pinned: row.get(9).ok(),
+                is_locked: row.get(10).ok(),
             })
         })?;
 
