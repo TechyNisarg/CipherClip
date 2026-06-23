@@ -539,9 +539,22 @@ function App() {
             } catch(e) {
               console.error("Plugin writeImage failed, falling back to navigator", e);
               const blob = new Blob([arrayBuffer], { type: 'image/png' });
-              await navigator.clipboard.write([
-                new ClipboardItem({ [blob.type]: blob })
-              ]);
+              try {
+                await navigator.clipboard.write([
+                  new ClipboardItem({ [blob.type]: blob })
+                ]);
+              } catch(e2) {
+                console.error("navigator.clipboard failed, falling back to navigator.share", e2);
+                if (navigator.share) {
+                  const file = new File([blob], 'cipherclip_image.png', { type: 'image/png' });
+                  await navigator.share({
+                    files: [file],
+                    title: 'CipherClip Image'
+                  });
+                } else {
+                  throw e2;
+                }
+              }
             }
           } catch(e) {
             console.error("Failed to copy image to clipboard on mobile:", e);
@@ -571,9 +584,22 @@ function App() {
             } catch(e) {
               console.error("Plugin writeImage failed, falling back to navigator", e);
               const blob = new Blob([arrayBuffer], { type: 'image/webp' });
-              await navigator.clipboard.write([
-                new ClipboardItem({ [blob.type]: blob })
-              ]);
+              try {
+                await navigator.clipboard.write([
+                  new ClipboardItem({ [blob.type]: blob })
+                ]);
+              } catch(e2) {
+                console.error("navigator.clipboard failed, falling back to navigator.share", e2);
+                if (navigator.share) {
+                  const file = new File([blob], 'cipherclip_image.webp', { type: 'image/webp' });
+                  await navigator.share({
+                    files: [file],
+                    title: 'CipherClip Image'
+                  });
+                } else {
+                  throw e2;
+                }
+              }
             }
           } catch(e) {
             console.error("Failed to copy legacy image on mobile:", e);
@@ -2226,7 +2252,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
           ) : clip.content_type === "image" ? (
             <Tooltip text="Double-click to paste image">
               <div 
-                className="relative rounded-lg overflow-hidden border border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img"
+                className="relative w-full rounded-lg overflow-hidden border border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img"
               >
                 <AttachmentImage 
                   clip={clip}
