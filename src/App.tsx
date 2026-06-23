@@ -26,8 +26,17 @@ interface ClipItem {
   attachment_uuid?: string;
 }
 
+const getMimeType = (b64: string) => {
+  if (!b64) return 'image/jpeg';
+  if (b64.startsWith('/9j/')) return 'image/jpeg';
+  if (b64.startsWith('iVBOR')) return 'image/png';
+  if (b64.startsWith('UklGR')) return 'image/webp';
+  return 'image/jpeg'; // fallback
+};
+
 const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: string }) => {
-  const [src, setSrc] = useState<string>(clip.has_attachment ? '' : `data:image/webp;base64,${clip.content}`);
+  // Use the inline thumbnail preview initially if available, fallback to full webp/jpeg based on content
+  const [src, setSrc] = useState<string>(clip.content ? `data:${getMimeType(clip.content)};base64,${clip.content}` : '');
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
@@ -41,8 +50,15 @@ const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: strin
           })
           .catch(e => {
             console.error("Failed to load attachment image:", e);
-            if (clip.attachment_path) {
+            // On mobile, the attachment_path might be a Windows path from the peer.
+            // If get_attachment_bytes fails (meaning it's not local and we couldn't download it),
+            // fallback to the inline thumbnail if available.
+            if (clip.content) {
+              setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
+            } else if (clip.attachment_path && !isMobile) {
               setSrc(convertFileSrc(clip.attachment_path));
+            } else {
+              setHasError(true);
             }
           });
       }

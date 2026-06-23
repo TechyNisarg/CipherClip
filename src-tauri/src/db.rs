@@ -558,7 +558,7 @@ impl Database {
 
             let mut should_apply = true;
             if let Some((ext_time, ext_dev)) = existing_latest {
-                if ext_time > evt.timestamp || (ext_time == evt.timestamp && ext_dev > evt.device_id) {
+                if ext_time > evt.timestamp || (ext_time == evt.timestamp && ext_dev >= evt.device_id) {
                     should_apply = false;
                 }
             }
@@ -605,7 +605,7 @@ impl Database {
                     }
                 } else if evt.event_type == "DELETE" {
                     let _ = self.conn.execute(
-                        "UPDATE clipboard_history SET is_deleted = 1 WHERE uuid = ?1",
+                        "UPDATE clipboard_history SET is_deleted = 1 WHERE uuid = ?1 AND is_locked = 0",
                         [&evt.clip_uuid],
                     );
                 } else if evt.event_type == "LOCK" {
