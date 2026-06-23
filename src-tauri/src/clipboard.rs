@@ -136,8 +136,29 @@ pub fn start_listener(
                     // For the DB, we store only a lightweight metadata stub.
                     // For images: base64 thumbnail preview; for large text: a truncated preview.
                     let preview_payload = if ctype == "image" {
-                        use base64::{engine::general_purpose, Engine as _};
-                        general_purpose::STANDARD.encode(&payload).into_bytes()
+                        // Generate a small thumbnail (max 200px on longest side) for inline DB storage.
+                        // The full PNG is already on disk as the attachment — this is only for previews.
+                        use image::{ImageOutputFormat, DynamicImage, imageops::FilterType};
+                        // We need to re-parse the image or pass `img` from above if we want to avoid re-parsing.
+                        // We already converted it to PNG bytes, let's load it from those bytes for simplicity
+                        let thumb = if let Ok(parsed_img) = image::load_from_memory(&payload) {
+                            let img_dyn = parsed_img;
+                            if img_dyn.width() > 200 || img_dyn.height() > 200 {
+                                img_dyn.resize(200, 200, FilterType::Triangle)
+                            } else {
+                                img_dyn
+                            }
+                        } else {
+                            DynamicImage::new_rgb8(1, 1) // Fallback
+                        };
+
+                        let mut jpg_buf = Vec::new();
+                        if thumb.write_to(&mut std::io::Cursor::new(&mut jpg_buf), ImageOutputFormat::Jpeg(60)).is_ok() {
+                            use base64::{engine::general_purpose, Engine as _};
+                            general_purpose::STANDARD.encode(&jpg_buf).into_bytes()
+                        } else {
+                            b"[image]".to_vec()  // fallback if encoding fails
+                        }
                     } else {
                         // Store a truncated preview of the large text for the UI
                         let preview_len = std::cmp::min(payload.len(), 512);

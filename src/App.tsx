@@ -220,19 +220,19 @@ function App() {
           }
         }
       } catch(e) {
-        console.error("Failed to read mobile clipboard", e);
+        console.log("Mobile clipboard is non-text or unavailable, skipping:", e);
       }
     };
 
-    checkClipboard();
+    setTimeout(() => { checkClipboard(); }, 800);
 
     const handleFocus = () => {
-      checkClipboard();
+      setTimeout(() => { checkClipboard(); }, 800);
     };
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        checkClipboard();
+        setTimeout(() => { checkClipboard(); }, 800);
       }
     };
 

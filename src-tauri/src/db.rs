@@ -240,13 +240,18 @@ impl Database {
             "UPDATE clipboard_history SET is_locked = ?1 WHERE id = ?2",
             (is_locked, id),
         )?;
-        if let Some(uuid) = self.get_uuid_by_id(id)? {
-        let vector_clock = self.get_next_hlc();
-        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-        self.conn.execute(
-            "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params!["UPDATE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
-        )?;
+        // ONLY sync the LOCK action. Unlock is always local-only.
+        if is_locked {
+            if let Some(uuid) = self.get_uuid_by_id(id)? {
+                let vector_clock = self.get_next_hlc();
+                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+                let _ = self.conn.execute(
+                    "INSERT OR IGNORE INTO event_log \
+                     (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) \
+                     VALUES ('LOCK', ?1, ?2, ?3, ?4, 0, NULL)",
+                    rusqlite::params![&uuid, &self.device_id, vector_clock, timestamp],
+                );
+            }
         }
         Ok(())
     }
@@ -436,8 +441,8 @@ impl Database {
 
     pub fn get_latest_hlc(&self) -> i64 {
         self.conn.query_row(
-            "SELECT MAX(vector_clock) FROM event_log",
-            [],
+            "SELECT COALESCE(MAX(vector_clock), 0) FROM event_log WHERE device_id = ?1",
+            [&self.device_id],
             |row| row.get(0),
         ).unwrap_or(0)
     }
@@ -576,7 +581,7 @@ impl Database {
                                  encrypted_payload=excluded.encrypted_payload, 
                                  timestamp=excluded.timestamp,
                                  pinned=excluded.pinned,
-                                 is_locked=excluded.is_locked,
+                                 is_locked=MAX(is_locked, excluded.is_locked),
                                  has_attachment=excluded.has_attachment,
                                  attachment_path=excluded.attachment_path",
                                 rusqlite::params![&evt.clip_uuid, ctype, payload, evt.timestamp, is_pinned, is_locked, has_attach, attach_path],
@@ -591,7 +596,7 @@ impl Database {
                                  content_type=excluded.content_type, 
                                  timestamp=excluded.timestamp,
                                  pinned=excluded.pinned,
-                                 is_locked=excluded.is_locked,
+                                 is_locked=MAX(is_locked, excluded.is_locked),
                                  has_attachment=excluded.has_attachment,
                                  attachment_path=excluded.attachment_path",
                                 rusqlite::params![&evt.clip_uuid, ctype, evt.timestamp, is_pinned, is_locked, has_attach, attach_path],
@@ -599,10 +604,15 @@ impl Database {
                         }
                     }
                 } else if evt.event_type == "DELETE" {
-                    self.conn.execute(
+                    let _ = self.conn.execute(
                         "UPDATE clipboard_history SET is_deleted = 1 WHERE uuid = ?1",
                         [&evt.clip_uuid],
-                    )?;
+                    );
+                } else if evt.event_type == "LOCK" {
+                    let _ = self.conn.execute(
+                        "UPDATE clipboard_history SET is_locked = 1 WHERE uuid = ?1",
+                        [&evt.clip_uuid],
+                    );
                 }
             }
 

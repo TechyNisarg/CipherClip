@@ -377,7 +377,7 @@ fn paste_to_active_window(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
-fn add_mobile_clip(state: State<'_, AppState>, text: String) -> Result<bool, String> {
+async fn add_mobile_clip(state: State<'_, AppState>, text: String) -> Result<bool, String> {
     use sha2::{Digest, Sha256};
     
     let payload = text.into_bytes();
