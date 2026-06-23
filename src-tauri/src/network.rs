@@ -170,7 +170,8 @@ impl NetworkManager {
             let prefix_len = prefix.len(); // 20 bytes including the colon
 
             loop {
-                if let Ok((amt, src_addr)) = socket.recv_from(&mut buf) {
+                match socket.recv_from(&mut buf) {
+                    Ok((amt, src_addr)) => {
                     // Check for our protocol prefix (CIPHERCLIP_DISCOVER:)
                     if amt > prefix_len && &buf[0..prefix_len] == prefix {
                         let msg = String::from_utf8_lossy(&buf[prefix_len..amt]);
@@ -319,6 +320,10 @@ impl NetworkManager {
                             }
                         }
                     }
+                    }
+                    Err(_) => {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
                 }
             }
         });
@@ -330,19 +335,20 @@ impl NetworkManager {
         let peers_tcp = peers.clone();
         thread::spawn(move || {
             if let Ok(listener) = TcpListener::bind(("0.0.0.0", TCP_PORT)) {
-                for stream in listener.incoming() {
-                    if let Ok(mut stream) = stream {
-                        // Set timeouts on incoming connections to prevent handler threads from blocking
-                        let _ = stream.set_read_timeout(Some(TCP_IO_TIMEOUT));
-                        let _ = stream.set_write_timeout(Some(TCP_IO_TIMEOUT));
-                        let mut src_ip = String::new();
-                        if let Ok(peer_addr) = stream.peer_addr() {
-                            src_ip = peer_addr.ip().to_string();
-                            if blocked_ips_tcp.lock().unwrap().contains(&src_ip) {
-                                continue;
+                for stream_res in listener.incoming() {
+                    match stream_res {
+                        Ok(mut stream) => {
+                            // Set timeouts on incoming connections to prevent handler threads from blocking
+                            let _ = stream.set_read_timeout(Some(TCP_IO_TIMEOUT));
+                            let _ = stream.set_write_timeout(Some(TCP_IO_TIMEOUT));
+                            let mut src_ip = String::new();
+                            if let Ok(peer_addr) = stream.peer_addr() {
+                                src_ip = peer_addr.ip().to_string();
+                                if blocked_ips_tcp.lock().unwrap().contains(&src_ip) {
+                                    continue;
+                                }
                             }
-                        }
-                        let crypto_c = crypto_tcp.clone();
+                            let crypto_c = crypto_tcp.clone();
                         let db_c = db.clone();
                         let ui_callback_c = ui_callback.clone();
                         let app_data_dir_c = app_data_dir.clone();
@@ -592,6 +598,11 @@ impl NetworkManager {
                             }
                         });
                     }
+                    Err(e) => {
+                        log::error!("TCP accept error: {}", e);
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                }
                 }
             }
         });

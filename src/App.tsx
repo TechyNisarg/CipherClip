@@ -46,7 +46,7 @@ const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: strin
       if (uuid) {
         invoke<string>("get_attachment_bytes", { uuid })
           .then(base64 => {
-            setSrc(`data:image/png;base64,${base64}`);
+            setSrc(`data:${getMimeType(base64)};base64,${base64}`);
           })
           .catch(e => {
             console.error("Failed to load attachment image:", e);
@@ -530,7 +530,9 @@ function App() {
           try {
             const uuid = clip.attachment_uuid || clip.attachment_path.split(/[\/\\]/).pop()?.split('.')[0];
             const base64 = await invoke<string>("get_attachment_bytes", { uuid });
-            const res = await fetch(`data:image/png;base64,${base64}`);
+            const mime = getMimeType(base64);
+            const ext = mime.split('/')[1] || 'png';
+            const res = await fetch(`data:${mime};base64,${base64}`);
             const arrayBuffer = await res.arrayBuffer();
             
             try {
@@ -538,15 +540,32 @@ function App() {
               await writeImage(tauriImg);
             } catch(e) {
               console.error("Plugin writeImage failed, falling back to navigator", e);
-              const blob = new Blob([arrayBuffer], { type: 'image/png' });
+              const blob = new Blob([arrayBuffer], { type: mime });
               try {
+                let copyBlob = blob;
+                if (mime !== 'image/png') {
+                  const img = new Image();
+                  img.src = `data:${mime};base64,${base64}`;
+                  await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                  });
+                  const canvas = document.createElement('canvas');
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) ctx.drawImage(img, 0, 0);
+                  copyBlob = await new Promise<Blob>((resolve, reject) => {
+                    canvas.toBlob(b => b ? resolve(b) : reject(new Error("Canvas toBlob failed")), 'image/png');
+                  });
+                }
                 await navigator.clipboard.write([
-                  new ClipboardItem({ [blob.type]: blob })
+                  new ClipboardItem({ 'image/png': copyBlob })
                 ]);
               } catch(e2) {
                 console.error("navigator.clipboard failed, falling back to navigator.share", e2);
                 if (navigator.share) {
-                  const file = new File([blob], 'cipherclip_image.png', { type: 'image/png' });
+                  const file = new File([blob], `cipherclip_image.${ext}`, { type: mime });
                   await navigator.share({
                     files: [file],
                     title: 'CipherClip Image'
@@ -2252,11 +2271,11 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
           ) : clip.content_type === "image" ? (
             <Tooltip text="Double-click to paste image">
               <div 
-                className="relative w-full rounded-lg overflow-hidden border border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img"
+                className={`relative overflow-hidden border-y border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img ${isMobile ? '-mx-3 w-[calc(100%+1.5rem)] border-x-0 rounded-none' : 'w-full rounded-lg border-x'}`}
               >
                 <AttachmentImage 
                   clip={clip}
-                  className="w-full h-full object-cover max-h-48 transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
+                  className={`w-full h-full object-cover max-h-48 transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing ${isMobile ? 'rounded-none' : ''}`}
                 />
               </div>
             </Tooltip>

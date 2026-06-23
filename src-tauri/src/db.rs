@@ -549,6 +549,16 @@ impl Database {
         let current_time = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
         for evt in events {
             if evt.timestamp > current_time + 3600_000_000 { continue; }
+
+            let min_clock: i64 = self.conn.query_row(
+                "SELECT acknowledged_clock FROM peer_sync_state WHERE author_id = ?1",
+                [&evt.device_id],
+                |r| r.get(0)
+            ).unwrap_or(0);
+            
+            if evt.vector_clock <= min_clock {
+                continue;
+            }
             
             let existing_latest: Option<(i64, String)> = self.conn.query_row(
                 "SELECT timestamp, device_id FROM event_log WHERE clip_uuid = ?1 ORDER BY timestamp DESC, device_id DESC LIMIT 1",
