@@ -31,6 +31,7 @@ pub struct NetworkManager {
     crypto: Arc<CryptoState>,
     instance_id: String,
     settings: Arc<crate::settings::SettingsManager>,
+    last_catchup: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 #[derive(serde::Serialize)]
@@ -73,13 +74,14 @@ impl NetworkManager {
     ) -> Self {
         let instance_id_str = settings.get().device_id.clone();
         let peers: Arc<Mutex<HashMap<String, (Instant, String)>>> = Arc::new(Mutex::new(HashMap::new()));
+        let last_catchup: Arc<Mutex<HashMap<String, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
         
         let blocked_ips_set = settings.get_blocked_ips().into_iter().collect();
         let blocked_ips: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(blocked_ips_set));
 
         if NETWORK_INITIALIZED.swap(true, Ordering::SeqCst) {
             println!("NetworkManager already initialized! Skipping thread spawn.");
-            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone(), settings: settings.clone() };
+            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone(), settings: settings.clone(), last_catchup };
         }
 
         // 1. UDP Discovery Broadcaster
@@ -149,6 +151,7 @@ impl NetworkManager {
         let instance_id_listen = instance_id_str.clone();
         let settings_clone = settings.clone();
         let db_listen = db.clone();
+        let last_catchup_clone = last_catchup.clone();
         thread::spawn(move || {
             let socket = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
                 Ok(s) => {
@@ -234,41 +237,53 @@ impl NetworkManager {
                                                 if expected_mac == sync_mac {
                                                     let peer_hlc = hlc_str.parse::<i64>().unwrap_or(0);
                                                     
-                                                    // Start catch-up in a separate thread to avoid blocking UDP listener
-                                                    let catchup_ip = actual_peer_ip.clone();
-                                                    let crypto_catchup = crypto_for_listen.clone();
-                                                    let db_catchup = db_listen.clone();
-                                                    std::thread::spawn(move || {
-                                                        let events = if let Ok(db) = db_catchup.lock() {
-                                                            db.get_events_since_hlc(peer_hlc).unwrap_or_default()
-                                                        } else {
-                                                            Vec::new()
-                                                        };
-                                                        
-                                                        if events.is_empty() { return; }
-                                                        
-                                                        // Push events to peer in batches of 50
-                                                        let mut i = 0;
-                                                        while i < events.len() {
-                                                            let batch = events[i..std::cmp::min(i + 50, events.len())].to_vec();
+                                                    let should_catchup = {
+                                                        let mut lc = last_catchup_clone.lock().unwrap();
+                                                        let last = lc.get(&actual_peer_ip).copied();
+                                                        let stale = last.map(|t| t.elapsed().as_secs() > 30).unwrap_or(true);
+                                                        if stale {
+                                                            lc.insert(actual_peer_ip.clone(), Instant::now());
+                                                        }
+                                                        stale
+                                                    };
+                                                    
+                                                    if should_catchup {
+                                                        // Start catch-up in a separate thread to avoid blocking UDP listener
+                                                        let catchup_ip = actual_peer_ip.clone();
+                                                        let crypto_catchup = crypto_for_listen.clone();
+                                                        let db_catchup = db_listen.clone();
+                                                        std::thread::spawn(move || {
+                                                            let events = if let Ok(db) = db_catchup.lock() {
+                                                                db.get_events_since_hlc(peer_hlc).unwrap_or_default()
+                                                            } else {
+                                                                Vec::new()
+                                                            };
+                                                            
+                                                            if events.is_empty() { return; }
+                                                            
+                                                            // Push events to peer in batches of 50
                                                             if let Ok(mut stream) = connect_tcp((catchup_ip.as_str(), TCP_PORT)) {
-                                                                let payload = serde_json::json!({
-                                                                    "events": batch
-                                                                }).to_string();
-                                                                
-                                                                if let Ok(res_enc) = crypto_catchup.encrypt(payload.as_bytes()) {
-                                                                    let msg_type = b"SYNC_RES";
-                                                                    let mut buf = Vec::new();
-                                                                    buf.push(msg_type.len() as u8);
-                                                                    buf.extend_from_slice(msg_type);
-                                                                    buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
-                                                                    buf.extend_from_slice(&res_enc);
-                                                                    let _ = stream.write_all(&buf);
+                                                                let mut i = 0;
+                                                                while i < events.len() {
+                                                                    let batch = events[i..std::cmp::min(i + 50, events.len())].to_vec();
+                                                                    let payload = serde_json::json!({
+                                                                        "events": batch
+                                                                    }).to_string();
+                                                                    
+                                                                    if let Ok(res_enc) = crypto_catchup.encrypt(payload.as_bytes()) {
+                                                                        let msg_type = b"SYNC_RES";
+                                                                        let mut buf = Vec::new();
+                                                                        buf.push(msg_type.len() as u8);
+                                                                        buf.extend_from_slice(msg_type);
+                                                                        buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
+                                                                        buf.extend_from_slice(&res_enc);
+                                                                        if stream.write_all(&buf).is_err() { break; }
+                                                                    }
+                                                                    i += 50;
                                                                 }
                                                             }
-                                                            i += 50;
-                                                        }
-                                                    });
+                                                        });
+                                                    }
                                                 }
                                             }
                                         }
@@ -573,7 +588,7 @@ impl NetworkManager {
             }
         });
 
-        Self { peers, blocked_ips, crypto, instance_id: instance_id_str, settings }
+        Self { peers, blocked_ips, crypto, instance_id: instance_id_str, settings, last_catchup }
     }
 
     

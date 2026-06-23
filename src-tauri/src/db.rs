@@ -110,6 +110,28 @@ impl Database {
             (),
         )?;
 
+        // Deduplicate any existing duplicate rows (from the runaway catch-up bug).
+        // Keep the row with the lowest rowid for each (clip_uuid, device_id, vector_clock)
+        let _ = conn.execute(
+            "DELETE FROM event_log WHERE id NOT IN (
+                SELECT MIN(id) FROM event_log
+                GROUP BY clip_uuid, device_id, vector_clock
+            )",
+            (),
+        );
+
+        // Now add the unique index so it can never happen again.
+        let _ = conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_event_log_unique 
+             ON event_log(clip_uuid, device_id, vector_clock)",
+            (),
+        );
+
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_event_log_vector_clock ON event_log(vector_clock)",
+            (),
+        );
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS peer_sync_state (
                 author_id TEXT NOT NULL,
@@ -573,7 +595,7 @@ impl Database {
             let has_attach = evt.has_attachment.unwrap_or(false);
             let attach_path = evt.attachment_path.clone();
             let _ = self.conn.execute(
-                "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR IGNORE INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params![&evt.event_type, &evt.clip_uuid, &evt.device_id, evt.vector_clock, evt.timestamp, has_attach, attach_path],
             );
         }
@@ -585,7 +607,7 @@ impl Database {
             "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
-             ORDER BY e.timestamp ASC"
+             ORDER BY e.vector_clock ASC"
         )?;
 
         let event_iter = stmt.query_map([], |row| {
