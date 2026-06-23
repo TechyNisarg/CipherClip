@@ -138,7 +138,7 @@ pub fn start_listener(
                     let preview_payload = if ctype == "image" {
                         // Generate a small thumbnail (max 200px on longest side) for inline DB storage.
                         // The full PNG is already on disk as the attachment — this is only for previews.
-                        use image::{ImageOutputFormat, DynamicImage, imageops::FilterType};
+                        use image::{ImageFormat, DynamicImage, imageops::FilterType};
                         // We need to re-parse the image or pass `img` from above if we want to avoid re-parsing.
                         // We already converted it to PNG bytes, let's load it from those bytes for simplicity
                         let thumb = if let Ok(parsed_img) = image::load_from_memory(&payload) {
@@ -153,7 +153,7 @@ pub fn start_listener(
                         };
 
                         let mut jpg_buf = Vec::new();
-                        if thumb.write_to(&mut std::io::Cursor::new(&mut jpg_buf), ImageOutputFormat::Jpeg(60)).is_ok() {
+                        if thumb.write_to(&mut std::io::Cursor::new(&mut jpg_buf), ImageFormat::Jpeg).is_ok() {
                             use base64::{engine::general_purpose, Engine as _};
                             general_purpose::STANDARD.encode(&jpg_buf).into_bytes()
                         } else {
