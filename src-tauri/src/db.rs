@@ -334,7 +334,7 @@ impl Database {
     pub fn get_latest_hash(&self) -> SqlResult<Option<Vec<u8>>> {
         self.conn
             .query_row(
-                "SELECT encrypted_payload FROM clipboard_history ORDER BY id DESC LIMIT 1",
+                "SELECT encrypted_payload FROM clipboard_history WHERE is_deleted = 0 ORDER BY id DESC LIMIT 1",
                 [],
                 |row| row.get(0),
             )

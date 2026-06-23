@@ -483,16 +483,20 @@ impl NetworkManager {
                                                             let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
                                                         }
                                                         for e in events_clone {
-                                                            if e.has_attachment.unwrap_or(false) && e.payload.is_none() {
+                                                            if e.has_attachment.unwrap_or(false) {
                                                                 let peer_ip = src_ip.to_string();
                                                                 let uuid = e.clip_uuid.clone();
+                                                                let c_crypto = crypto_c.clone();
+                                                                let c_dir = app_data_dir_c.clone();
+                                                                let c_cb = ui_callback_c.clone();
                                                                 
-                                                                                                                        let c_crypto = crypto_c.clone();
-                                                        let c_dir = app_data_dir_c.clone();
-                                                        let c_cb = ui_callback_c.clone();
-                                                        std::thread::spawn(move || {
-                                                            let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
-                                                        });
+                                                                let path = c_dir.join("attachments").join(format!("{}.png", uuid));
+                                                                let legacy_path = c_dir.join("attachments").join(format!("{}.bin", uuid));
+                                                                if !path.exists() && !legacy_path.exists() {
+                                                                    std::thread::spawn(move || {
+                                                                        let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
+                                                                    });
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -549,16 +553,20 @@ impl NetworkManager {
                                                     let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
                                                 }
                                                 for e in events_clone {
-                                                    if e.has_attachment.unwrap_or(false) && e.payload.is_none() {
+                                                    if e.has_attachment.unwrap_or(false) {
                                                         let peer_ip = src_ip.to_string();
                                                         let uuid = e.clip_uuid.clone();
-                                                        
-                                                                                                                let c_crypto = crypto_c.clone();
+                                                        let c_crypto = crypto_c.clone();
                                                         let c_dir = app_data_dir_c.clone();
                                                         let c_cb = ui_callback_c.clone();
-                                                        std::thread::spawn(move || {
-                                                            let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
-                                                        });
+                                                        
+                                                        let path = c_dir.join("attachments").join(format!("{}.png", uuid));
+                                                        let legacy_path = c_dir.join("attachments").join(format!("{}.bin", uuid));
+                                                        if !path.exists() && !legacy_path.exists() {
+                                                            std::thread::spawn(move || {
+                                                                let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
+                                                            });
+                                                        }
                                                     }
                                                 }
                                             }

@@ -400,6 +400,8 @@ fn add_mobile_clip(state: State<'_, AppState>, text: String) -> Result<bool, Str
     let limit = state.settings.get().history_limit;
 
     db_guard.insert_clip("text", &encrypted_payload, limit, false, None).map_err(|e| e.to_string())?;
+    drop(db_guard);
+    state.network.trigger_sync(state.db.clone());
 
     Ok(true)
 }
