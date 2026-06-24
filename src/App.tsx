@@ -530,82 +530,8 @@ function App() {
         } catch(e) {}
         
         if (isMobile && clip.content_type === "image") {
-          try {
-            const rawUuid = clip.attachment_uuid || clip.attachment_path;
-            const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
-            const base64 = await invoke<string>("get_attachment_bytes", { uuid });
-            const mime = getMimeType(base64);
-            const ext = mime.split('/')[1] || 'png';
-            const res = await fetch(`data:${mime};base64,${base64}`);
-            const arrayBuffer = await res.arrayBuffer();
-            
-            try {
-              const osTypeStr = osType();
-              if (osTypeStr === 'android' || osTypeStr === 'ios') {
-                const blob = new Blob([arrayBuffer], { type: mime });
-                if (navigator.share) {
-                  const file = new File([blob], `cipherclip_image.${ext}`, { type: mime });
-                  await navigator.share({
-                    files: [file],
-                    title: 'CipherClip Image'
-                  });
-                  return; // Don't show "copied to clipboard" toast
-                } else {
-                  throw new Error("navigator.share not available");
-                }
-              }
-
-              const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-              await writeImage(tauriImg);
-            } catch(e) {
-              console.error("Plugin writeImage or share failed, falling back to navigator.clipboard", e);
-              const blob = new Blob([arrayBuffer], { type: mime });
-              try {
-                let copyBlob = blob;
-                if (mime !== 'image/png') {
-                  const img = new Image();
-                  img.src = `data:${mime};base64,${base64}`;
-                  await new Promise((resolve, reject) => {
-                    img.onload = resolve;
-                    img.onerror = reject;
-                  });
-                  const canvas = document.createElement('canvas');
-                  canvas.width = img.width;
-                  canvas.height = img.height;
-                  const ctx = canvas.getContext('2d');
-                  if (ctx) ctx.drawImage(img, 0, 0);
-                  copyBlob = await new Promise<Blob>((resolve, reject) => {
-                    canvas.toBlob(b => b ? resolve(b) : reject(new Error("Canvas toBlob failed")), 'image/png');
-                  });
-                }
-                await navigator.clipboard.write([
-                  new ClipboardItem({ 'image/png': copyBlob })
-                ]);
-              } catch(e2) {
-                console.error("navigator.clipboard failed, falling back to navigator.share", e2);
-                if (navigator.share) {
-                  const file = new File([blob], `cipherclip_image.${ext}`, { type: mime });
-                  await navigator.share({
-                    files: [file],
-                    title: 'CipherClip Image'
-                  });
-                  return;
-                } else {
-                  throw e2;
-                }
-              }
-            }
-          } catch(e: any) {
-            console.error("Failed to copy image to clipboard on mobile:", e);
-            const rawUuid = clip.attachment_uuid || clip.attachment_path;
-            const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
-            if (uuid && downloadingClips.has(uuid)) {
-              alert("Image is still downloading, please wait a moment.");
-            } else {
-              alert(`Failed to copy image: ${e.message || typeof e === 'string' ? e : JSON.stringify(e)}`);
-            }
-            return;
-          }
+          alert("Directly copying images to the clipboard is not supported by Android/iOS. Double-tap the image to open the preview, then long-press it to Share or Save.");
+          return;
         } else {
           await invoke("copy_attachment", { 
             path: clip.attachment_path,
@@ -619,54 +545,8 @@ function App() {
         } catch(e) {}
         
         if (isMobile) {
-          try {
-            const res = await fetch(`data:image/webp;base64,${clip.content}`);
-            const arrayBuffer = await res.arrayBuffer();
-            
-            try {
-              const osTypeStr = osType();
-              if (osTypeStr === 'android' || osTypeStr === 'ios') {
-                const blob = new Blob([arrayBuffer], { type: 'image/webp' });
-                if (navigator.share) {
-                  const file = new File([blob], 'cipherclip_image.webp', { type: 'image/webp' });
-                  await navigator.share({
-                    files: [file],
-                    title: 'CipherClip Image'
-                  });
-                  return; // Don't show "copied to clipboard" toast
-                } else {
-                  throw new Error("navigator.share not available");
-                }
-              }
-
-              const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-              await writeImage(tauriImg);
-            } catch(e) {
-              console.error("Plugin writeImage or share failed, falling back to navigator", e);
-              const blob = new Blob([arrayBuffer], { type: 'image/webp' });
-              try {
-                await navigator.clipboard.write([
-                  new ClipboardItem({ [blob.type]: blob })
-                ]);
-              } catch(e2) {
-                console.error("navigator.clipboard failed, falling back to navigator.share", e2);
-                if (navigator.share) {
-                  const file = new File([blob], 'cipherclip_image.webp', { type: 'image/webp' });
-                  await navigator.share({
-                    files: [file],
-                    title: 'CipherClip Image'
-                  });
-                  return;
-                } else {
-                  throw e2;
-                }
-              }
-            }
-          } catch(e) {
-            console.error("Failed to copy legacy image on mobile:", e);
-            alert("Failed to copy image. Your device may not support copying images from this app directly.");
-            return;
-          }
+          alert("Directly copying images to the clipboard is not supported by Android/iOS. Double-tap the image to open the preview, then long-press it to Share or Save.");
+          return;
         } else {
           const canvas = document.createElement('canvas');
           const img = new Image();

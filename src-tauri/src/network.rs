@@ -407,6 +407,11 @@ impl NetworkManager {
                                             break;
                                         }
                                     }
+                                    ui_callback_c("download_progress", serde_json::json!({
+                                        "uuid": clip_uuid,
+                                        "progress": 100.0,
+                                        "downloaded": downloaded_bytes
+                                    }));
                                     let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
                                 }
                                 return;
@@ -763,9 +768,10 @@ pub fn download_attachment(peer_ip: &str, uuid: &str, crypto: std::sync::Arc<cra
                                                 if let Ok(decrypted) = crypto.decrypt(&chunk_buf) {
                                                     let _ = storage.save_chunk(&clip_uuid, &decrypted, true);
                                                     downloaded_bytes += decrypted.len();
-                                                    ui_callback("download_progress", serde_json::json!({ "uuid": clip_uuid.clone(), "percentage": if num_chunks > 0 { (i as f64 / num_chunks as f64 * 100.0) as u32 } else { 100 } }));
+                                                    ui_callback("download_progress", serde_json::json!({ "uuid": clip_uuid.clone(), "progress": if num_chunks > 0 { (i as f64 / num_chunks as f64 * 100.0) as u32 } else { 100 }, "downloaded": downloaded_bytes }));
                                                 } else { break; }
                                             }
+                                            ui_callback("download_progress", serde_json::json!({ "uuid": clip_uuid.clone(), "progress": 100, "downloaded": downloaded_bytes }));
                                             ui_callback("clipboard-update", serde_json::json!({}));
                                         }
                                     }
