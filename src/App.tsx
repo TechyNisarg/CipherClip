@@ -137,6 +137,7 @@ function App() {
   const [showPasswordIcon, setShowPasswordIcon] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'sync' | 'data' | 'about'>('general');
   const [toast, setToast] = useState<string | null>(null);
+  const [previewImageSrc, setPreviewImageSrc] = useState<string | null>(null);
 
   useEffect(() => {
     if (settingsTab === 'sync' || showNetworkSync) {
@@ -998,8 +999,8 @@ function App() {
                           setTimeout(() => setShowPasswordSetup(true), 100);
                         }}
                         onPreviewImage={async (base64) => {
-                          showToast("Opening image in system viewer...");
-                          await invoke('open_image_preview', { base64Data: base64 });
+                          const mime = getMimeType(base64);
+                          setPreviewImageSrc(`data:${mime};base64,${base64}`);
                         }}
                         downloadingClips={downloadingClips}
                       />
@@ -1011,6 +1012,35 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* Image Preview Modal */}
+      <AnimatePresence>
+        {previewImageSrc && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4"
+            onClick={() => setPreviewImageSrc(null)}
+          >
+            <button 
+              onClick={() => setPreviewImageSrc(null)} 
+              className="absolute top-4 right-4 p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors z-10"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <motion.img 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              src={previewImageSrc} 
+              alt="Preview" 
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Alert Modal */}
       <AnimatePresence>
@@ -1935,13 +1965,14 @@ function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.4, ease: "easeOut" }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-800 dark:bg-gray-100 text-white dark:text-slate-800 px-4 py-3 rounded-xl shadow-lg shadow-slate-800/20 text-sm font-medium flex items-center justify-center gap-2.5 w-max max-w-[calc(100%-2rem)]"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-slate-800 dark:bg-gray-100 text-white dark:text-slate-800 px-4 py-3 rounded-xl shadow-lg shadow-slate-800/20 text-sm font-medium flex items-center justify-center gap-2.5 w-max max-w-[calc(100%-2rem)]"
           >
-            <Check className="w-4 h-4 shrink-0 text-emerald-400 dark:text-emerald-600" />
-            <span className="leading-snug text-left truncate">{toast}</span>
+            <Check className="w-4 h-4 shrink-0 text-emerald-400 dark:text-emerald-600 mt-0.5" />
+            <span className="leading-snug text-left whitespace-normal break-words">{toast}</span>
           </motion.div>
         )}
       </AnimatePresence>
+
       {/* Password Setup Modal */}
       <AnimatePresence>
         {showPasswordSetup && (

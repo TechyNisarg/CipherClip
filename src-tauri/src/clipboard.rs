@@ -152,10 +152,10 @@ pub fn start_listener(
                             DynamicImage::new_rgb8(1, 1) // Fallback
                         };
 
-                        let mut jpg_buf = Vec::new();
-                        if thumb.write_to(&mut std::io::Cursor::new(&mut jpg_buf), ImageFormat::Jpeg).is_ok() {
+                        let mut png_buf = Vec::new();
+                        if thumb.write_to(&mut std::io::Cursor::new(&mut png_buf), ImageFormat::Png).is_ok() {
                             use base64::{engine::general_purpose, Engine as _};
-                            general_purpose::STANDARD.encode(&jpg_buf).into_bytes()
+                            general_purpose::STANDARD.encode(&png_buf).into_bytes()
                         } else {
                             b"[image]".to_vec()  // fallback if encoding fails
                         }
