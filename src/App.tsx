@@ -2286,7 +2286,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                 <AttachmentImage 
                   clip={clip}
                   isDownloading={clip.attachment_uuid ? downloadingClips.has(clip.attachment_uuid) : false}
-                  className="max-h-48 object-contain transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
+                  className="rounded-lg max-h-48 object-contain transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
                 />
               </div>
             </Tooltip>
@@ -2322,6 +2322,20 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                   }
                   setIsLoadingPreview(true);
                   try {
+                    if (!isMobile && clip.attachment_path) {
+                      await openUrl(clip.attachment_path);
+                    } else {
+                      const rawUuid = clip.attachment_uuid || clip.attachment_path;
+                      const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
+                      if (uuid) {
+                        const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
+                        await onPreviewImage(fullBase64);
+                      } else {
+                        await onPreviewImage(clip.content);
+                      }
+                    }
+                  } catch(e) {
+                    console.error("Preview error:", e);
                     await onPreviewImage(clip.content);
                   } finally {
                     setIsLoadingPreview(false);

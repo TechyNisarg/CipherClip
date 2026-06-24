@@ -497,7 +497,9 @@ impl NetworkManager {
                                                         for e in events_clone {
                                                             if e.has_attachment.unwrap_or(false) {
                                                                 let peer_ip = src_ip.to_string();
-                                                                let uuid = e.clip_uuid.clone();
+                                                                let raw_path = e.attachment_path.clone().unwrap_or_default();
+                                                                let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
+                                                                let uuid = if extracted.is_empty() { e.clip_uuid.clone() } else { extracted };
                                                                 let c_crypto = crypto_c.clone();
                                                                 let c_dir = app_data_dir_c.clone();
                                                                 let c_cb = ui_callback_c.clone();
@@ -567,7 +569,9 @@ impl NetworkManager {
                                                 for e in events_clone {
                                                     if e.has_attachment.unwrap_or(false) {
                                                         let peer_ip = src_ip.to_string();
-                                                        let uuid = e.clip_uuid.clone();
+                                                        let raw_path = e.attachment_path.clone().unwrap_or_default();
+                                                        let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
+                                                        let uuid = if extracted.is_empty() { e.clip_uuid.clone() } else { extracted };
                                                         let c_crypto = crypto_c.clone();
                                                         let c_dir = app_data_dir_c.clone();
                                                         let c_cb = ui_callback_c.clone();

@@ -46,20 +46,25 @@ async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
     let mut result = Vec::new();
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     
-    for (id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_uuid) in clips {
+    for (id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, raw_attachment_path) in clips {
         let mut abs_path: Option<String> = None;
+        let mut pure_uuid: Option<String> = None;
         if has_attachment {
-            if let Some(uuid) = &attachment_uuid {
-                let mut path = app_dir.join("attachments").join(format!("{}.png", uuid));
-                if !path.exists() {
-                    let legacy_path = app_dir.join("attachments").join(format!("{}.bin", uuid));
-                    if legacy_path.exists() {
-                        let _ = std::fs::rename(&legacy_path, &path);
-                    } else {
-                        path = legacy_path;
+            if let Some(raw_path) = &raw_attachment_path {
+                let extracted = std::path::Path::new(raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
+                if !extracted.is_empty() {
+                    pure_uuid = Some(extracted.clone());
+                    let mut path = app_dir.join("attachments").join(format!("{}.png", extracted));
+                    if !path.exists() {
+                        let legacy_path = app_dir.join("attachments").join(format!("{}.bin", extracted));
+                        if legacy_path.exists() {
+                            let _ = std::fs::rename(&legacy_path, &path);
+                        } else {
+                            path = legacy_path;
+                        }
                     }
+                    abs_path = Some(path.to_string_lossy().to_string());
                 }
-                abs_path = Some(path.to_string_lossy().to_string());
             }
         }
 
@@ -73,7 +78,8 @@ async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
                     "pinned": pinned,
                     "is_locked": is_locked,
                     "has_attachment": has_attachment,
-                    "attachment_path": abs_path
+                    "attachment_path": abs_path,
+                    "attachment_uuid": pure_uuid
                 }));
             }
         } else if has_attachment {
@@ -87,7 +93,8 @@ async fn get_history(state: State<'_, AppState>, app_handle: tauri::AppHandle) -
                 "pinned": pinned,
                 "is_locked": is_locked,
                 "has_attachment": true,
-                "attachment_path": abs_path
+                "attachment_path": abs_path,
+                "attachment_uuid": pure_uuid
             }));
         }
     }
@@ -136,12 +143,17 @@ async fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHan
     let mut result = Vec::new();
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     
-    for (id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, attachment_uuid) in clips {
+    for (id, content_type, encrypted_payload, timestamp, pinned, is_locked, has_attachment, raw_attachment_path) in clips {
         let mut abs_path: Option<String> = None;
+        let mut pure_uuid: Option<String> = None;
         if has_attachment {
-            if let Some(uuid) = attachment_uuid {
-                let path = app_dir.join("attachments").join(format!("{}.bin", uuid));
-                abs_path = Some(path.to_string_lossy().to_string());
+            if let Some(raw_path) = raw_attachment_path {
+                let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
+                if !extracted.is_empty() {
+                    pure_uuid = Some(extracted.clone());
+                    let path = app_dir.join("attachments").join(format!("{}.bin", extracted));
+                    abs_path = Some(path.to_string_lossy().to_string());
+                }
             }
         }
 
@@ -155,7 +167,8 @@ async fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHan
                     "pinned": pinned,
                     "is_locked": is_locked,
                     "has_attachment": has_attachment,
-                    "attachment_path": abs_path
+                    "attachment_path": abs_path,
+                    "attachment_uuid": pure_uuid
                 }));
             }
         } else if has_attachment {
@@ -169,7 +182,8 @@ async fn get_deleted_clips(state: State<'_, AppState>, app_handle: tauri::AppHan
                 "pinned": pinned,
                 "is_locked": is_locked,
                 "has_attachment": true,
-                "attachment_path": abs_path
+                "attachment_path": abs_path,
+                "attachment_uuid": pure_uuid
             }));
         }
     }

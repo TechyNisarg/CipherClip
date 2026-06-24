@@ -244,7 +244,7 @@ impl Database {
         if is_locked {
             if let Some(uuid) = self.get_uuid_by_id(id)? {
                 let vector_clock = self.get_next_hlc();
-                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
                 let _ = self.conn.execute(
                     "INSERT OR IGNORE INTO event_log \
                      (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) \
@@ -551,8 +551,8 @@ impl Database {
             if evt.timestamp > current_time + 3600_000_000 { continue; }
 
             let min_clock: i64 = self.conn.query_row(
-                "SELECT acknowledged_clock FROM peer_sync_state WHERE author_id = ?1",
-                [&evt.device_id],
+                "SELECT acknowledged_clock FROM peer_sync_state WHERE author_id = ?1 AND peer_id = ?2",
+                [&evt.device_id, &self.device_id],
                 |r| r.get(0)
             ).unwrap_or(0);
             
@@ -591,7 +591,7 @@ impl Database {
                                  encrypted_payload=excluded.encrypted_payload, 
                                  timestamp=excluded.timestamp,
                                  pinned=excluded.pinned,
-                                 is_locked=MAX(is_locked, excluded.is_locked),
+                                 is_locked=excluded.is_locked,
                                  has_attachment=excluded.has_attachment,
                                  attachment_path=excluded.attachment_path",
                                 rusqlite::params![&evt.clip_uuid, ctype, payload, evt.timestamp, is_pinned, is_locked, has_attach, attach_path],
@@ -606,7 +606,7 @@ impl Database {
                                  content_type=excluded.content_type, 
                                  timestamp=excluded.timestamp,
                                  pinned=excluded.pinned,
-                                 is_locked=MAX(is_locked, excluded.is_locked),
+                                 is_locked=excluded.is_locked,
                                  has_attachment=excluded.has_attachment,
                                  attachment_path=excluded.attachment_path",
                                 rusqlite::params![&evt.clip_uuid, ctype, evt.timestamp, is_pinned, is_locked, has_attach, attach_path],
@@ -615,7 +615,7 @@ impl Database {
                     }
                 } else if evt.event_type == "DELETE" {
                     let _ = self.conn.execute(
-                        "UPDATE clipboard_history SET is_deleted = 1 WHERE uuid = ?1 AND is_locked = 0",
+                        "UPDATE clipboard_history SET is_deleted = 1 WHERE uuid = ?1",
                         [&evt.clip_uuid],
                     );
                 } else if evt.event_type == "LOCK" {
@@ -631,6 +631,12 @@ impl Database {
             let _ = self.conn.execute(
                 "INSERT OR IGNORE INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params![&evt.event_type, &evt.clip_uuid, &evt.device_id, evt.vector_clock, evt.timestamp, has_attach, attach_path],
+            );
+            
+            let _ = self.conn.execute(
+                "INSERT INTO peer_sync_state (author_id, peer_id, acknowledged_clock) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(author_id, peer_id) DO UPDATE SET acknowledged_clock = MAX(acknowledged_clock, excluded.acknowledged_clock)",
+                rusqlite::params![&evt.device_id, &self.device_id, evt.vector_clock],
             );
         }
         Ok(())
