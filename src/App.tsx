@@ -540,10 +540,25 @@ function App() {
             const arrayBuffer = await res.arrayBuffer();
             
             try {
+              const osTypeStr = osType();
+              if (osTypeStr === 'android' || osTypeStr === 'ios') {
+                const blob = new Blob([arrayBuffer], { type: mime });
+                if (navigator.share) {
+                  const file = new File([blob], `cipherclip_image.${ext}`, { type: mime });
+                  await navigator.share({
+                    files: [file],
+                    title: 'CipherClip Image'
+                  });
+                  return; // Don't show "copied to clipboard" toast
+                } else {
+                  throw new Error("navigator.share not available");
+                }
+              }
+
               const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
               await writeImage(tauriImg);
             } catch(e) {
-              console.error("Plugin writeImage failed, falling back to navigator", e);
+              console.error("Plugin writeImage or share failed, falling back to navigator.clipboard", e);
               const blob = new Blob([arrayBuffer], { type: mime });
               try {
                 let copyBlob = blob;
@@ -574,6 +589,7 @@ function App() {
                     files: [file],
                     title: 'CipherClip Image'
                   });
+                  return;
                 } else {
                   throw e2;
                 }
@@ -608,10 +624,25 @@ function App() {
             const arrayBuffer = await res.arrayBuffer();
             
             try {
+              const osTypeStr = osType();
+              if (osTypeStr === 'android' || osTypeStr === 'ios') {
+                const blob = new Blob([arrayBuffer], { type: 'image/webp' });
+                if (navigator.share) {
+                  const file = new File([blob], 'cipherclip_image.webp', { type: 'image/webp' });
+                  await navigator.share({
+                    files: [file],
+                    title: 'CipherClip Image'
+                  });
+                  return; // Don't show "copied to clipboard" toast
+                } else {
+                  throw new Error("navigator.share not available");
+                }
+              }
+
               const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
               await writeImage(tauriImg);
             } catch(e) {
-              console.error("Plugin writeImage failed, falling back to navigator", e);
+              console.error("Plugin writeImage or share failed, falling back to navigator", e);
               const blob = new Blob([arrayBuffer], { type: 'image/webp' });
               try {
                 await navigator.clipboard.write([
@@ -625,6 +656,7 @@ function App() {
                     files: [file],
                     title: 'CipherClip Image'
                   });
+                  return;
                 } else {
                   throw e2;
                 }
@@ -2286,7 +2318,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                 <AttachmentImage 
                   clip={clip}
                   isDownloading={clip.attachment_uuid ? downloadingClips.has(clip.attachment_uuid) : false}
-                  className="rounded-lg max-h-48 object-contain transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
+                  className="w-full h-48 object-cover rounded-lg transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
                 />
               </div>
             </Tooltip>
@@ -2322,17 +2354,13 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                   }
                   setIsLoadingPreview(true);
                   try {
-                    if (!isMobile && clip.attachment_path) {
-                      await openUrl(clip.attachment_path);
+                    const rawUuid = clip.attachment_uuid || clip.attachment_path;
+                    const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
+                    if (uuid) {
+                      const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
+                      await onPreviewImage(fullBase64);
                     } else {
-                      const rawUuid = clip.attachment_uuid || clip.attachment_path;
-                      const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
-                      if (uuid) {
-                        const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
-                        await onPreviewImage(fullBase64);
-                      } else {
-                        await onPreviewImage(clip.content);
-                      }
+                      await onPreviewImage(clip.content);
                     }
                   } catch(e) {
                     console.error("Preview error:", e);

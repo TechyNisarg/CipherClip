@@ -614,10 +614,12 @@ impl Database {
                         }
                     }
                 } else if evt.event_type == "DELETE" {
-                    let _ = self.conn.execute(
-                        "UPDATE clipboard_history SET is_deleted = 1 WHERE uuid = ?1",
-                        [&evt.clip_uuid],
-                    );
+                      let _ = self.conn.execute(
+                          "INSERT INTO clipboard_history (uuid, content_type, encrypted_payload, timestamp, pinned, is_locked, is_deleted, has_attachment, attachment_path) 
+                           VALUES (?1, 'text', x'', ?2, 0, 0, 1, 0, NULL)
+                           ON CONFLICT(uuid) DO UPDATE SET is_deleted = 1",
+                          rusqlite::params![&evt.clip_uuid, evt.timestamp],
+                      );
                 } else if evt.event_type == "LOCK" {
                     let _ = self.conn.execute(
                         "UPDATE clipboard_history SET is_locked = 1 WHERE uuid = ?1",

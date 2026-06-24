@@ -15,7 +15,7 @@
         "title": "CipherClip",
         "width": 450,
         "height": 500,
-        "resizable": true,
+        "resizable": false,
         "fullscreen": false,
         "transparent": true
       }
