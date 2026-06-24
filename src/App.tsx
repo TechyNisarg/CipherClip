@@ -42,7 +42,8 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
   useEffect(() => {
     setHasError(false);
     if (clip.has_attachment && (clip.attachment_uuid || clip.attachment_path) && !isDownloading) {
-      const uuid = clip.attachment_uuid || clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
+      const rawUuid = clip.attachment_uuid || clip.attachment_path;
+      const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
         invoke<string>("get_attachment_bytes", { uuid })
           .then(base64 => {
@@ -530,7 +531,8 @@ function App() {
         
         if (isMobile && clip.content_type === "image") {
           try {
-            const uuid = clip.attachment_uuid || clip.attachment_path.split(/[\/\\]/).pop()?.split('.')[0];
+            const rawUuid = clip.attachment_uuid || clip.attachment_path;
+            const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
             const base64 = await invoke<string>("get_attachment_bytes", { uuid });
             const mime = getMimeType(base64);
             const ext = mime.split('/')[1] || 'png';
@@ -579,7 +581,8 @@ function App() {
             }
           } catch(e: any) {
             console.error("Failed to copy image to clipboard on mobile:", e);
-            const uuid = clip.attachment_uuid || clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
+            const rawUuid = clip.attachment_uuid || clip.attachment_path;
+            const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
             if (uuid && downloadingClips.has(uuid)) {
               alert("Image is still downloading, please wait a moment.");
             } else {
@@ -2283,7 +2286,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                 <AttachmentImage 
                   clip={clip}
                   isDownloading={clip.attachment_uuid ? downloadingClips.has(clip.attachment_uuid) : false}
-                  className="w-full h-full object-cover max-h-48 transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
+                  className="max-h-48 object-contain transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
                 />
               </div>
             </Tooltip>

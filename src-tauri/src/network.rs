@@ -427,7 +427,13 @@ impl NetworkManager {
                                 if content_type == "BIN_REQ" {
                                     if let Ok(uuid) = String::from_utf8(decrypted) {
                                         if let Ok(storage) = crate::storage::StorageManager::new(app_data_dir_c.clone()) {
-                                            let path = storage.get_attachment_path(&uuid);
+                                            let mut path = storage.get_attachment_path(&uuid);
+                                            if !path.exists() {
+                                                let legacy_path = storage.get_legacy_attachment_path(&uuid);
+                                                if legacy_path.exists() {
+                                                    path = legacy_path;
+                                                }
+                                            }
                                             if path.exists() {
                                                 if let Ok(metadata) = std::fs::metadata(&path) {
                                                     let file_size = metadata.len();
