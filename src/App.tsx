@@ -34,14 +34,14 @@ const getMimeType = (b64: string) => {
   return 'image/jpeg'; // fallback
 };
 
-const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: string }) => {
+const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, className: string, isDownloading?: boolean }) => {
   // Use the inline thumbnail preview initially if available, fallback to full webp/jpeg based on content
   const [src, setSrc] = useState<string>(clip.content ? `data:${getMimeType(clip.content)};base64,${clip.content}` : '');
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     setHasError(false);
-    if (clip.has_attachment && (clip.attachment_uuid || clip.attachment_path)) {
+    if (clip.has_attachment && (clip.attachment_uuid || clip.attachment_path) && !isDownloading) {
       const uuid = clip.attachment_uuid || clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
         invoke<string>("get_attachment_bytes", { uuid })
@@ -62,8 +62,10 @@ const AttachmentImage = ({ clip, className }: { clip: ClipItem, className: strin
             }
           });
       }
+    } else if (clip.content) {
+      setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
     }
-  }, [clip]);
+  }, [clip, isDownloading]);
 
   return (src && !hasError) ? (
     <img 
@@ -575,9 +577,14 @@ function App() {
                 }
               }
             }
-          } catch(e) {
+          } catch(e: any) {
             console.error("Failed to copy image to clipboard on mobile:", e);
-            alert("Failed to copy image. Your device may not support copying images from this app directly.");
+            const uuid = clip.attachment_uuid || clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
+            if (uuid && downloadingClips.has(uuid)) {
+              alert("Image is still downloading, please wait a moment.");
+            } else {
+              alert(`Failed to copy image: ${e.message || typeof e === 'string' ? e : JSON.stringify(e)}`);
+            }
             return;
           }
         } else {
@@ -2271,11 +2278,12 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
           ) : clip.content_type === "image" ? (
             <Tooltip text="Double-click to paste image">
               <div 
-                className={`relative overflow-hidden border-y border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img ${isMobile ? '-mx-3 w-[calc(100%+1.5rem)] border-x-0 rounded-none' : 'w-full rounded-lg border-x'}`}
+                className="relative w-full rounded-lg overflow-hidden border border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img"
               >
                 <AttachmentImage 
                   clip={clip}
-                  className={`w-full h-full object-cover max-h-48 transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing ${isMobile ? 'rounded-none' : ''}`}
+                  isDownloading={clip.attachment_uuid ? downloadingClips.has(clip.attachment_uuid) : false}
+                  className="w-full h-full object-cover max-h-48 transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
                 />
               </div>
             </Tooltip>
