@@ -101,7 +101,11 @@ impl NetworkManager {
 
             loop {
                 let my_ip = get_my_ip();
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 let mut device_name = whoami::devicename().unwrap_or_else(|_| "Unknown Device".to_string());
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                let mut device_name = "Mobile Device".to_string();
+
                 if device_name.to_lowercase() == "unknown" || device_name.to_lowercase() == "localhost" || device_name.trim().is_empty() {
                     device_name = "Mobile Device".to_string();
                 }
@@ -225,7 +229,11 @@ impl NetworkManager {
                                                 if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
                                                     let my_ip = get_my_ip();
                                                     
+                                                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
                                                     let mut device_name = whoami::devicename().unwrap_or_else(|_| "Unknown Device".to_string());
+                                                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                                                    let mut device_name = "Mobile Device".to_string();
+
                                                     if device_name.to_lowercase() == "unknown" || device_name.to_lowercase() == "localhost" || device_name.trim().is_empty() {
                                                         device_name = "Mobile Device".to_string();
                                                     }
