@@ -256,6 +256,10 @@ fn set_sync_key(
     state.network.clear_peers();
     // Also clear any disconnected/blocked peers so scanning a new QR code reconnects everyone
     state.network.clear_blocks();
+    // Clear known peers from DB
+    if let Ok(db) = state.db.lock() {
+        let _ = db.clear_all_peers();
+    }
 
     state.crypto.set_key_hex(&app_dir, &hex_key)
 }

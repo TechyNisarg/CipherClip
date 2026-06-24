@@ -216,9 +216,31 @@ impl NetworkManager {
                                         p.retain(|_, (time, _)| time.elapsed().as_secs() < 45);
                                         
                                         if !blocked.contains(&actual_peer_ip) {
+                                            let is_new = !p.contains_key(&actual_peer_ip);
                                             p.insert(actual_peer_ip.clone(), (Instant::now(), name.clone()));
                                             drop(blocked);
                                             drop(p);
+                                            
+                                            if is_new {
+                                                if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+                                                    let my_ip = get_my_ip();
+                                                    
+                                                    let mut device_name = whoami::devicename().unwrap_or_else(|_| "Unknown Device".to_string());
+                                                    if device_name.to_lowercase() == "unknown" || device_name.to_lowercase() == "localhost" || device_name.trim().is_empty() {
+                                                        device_name = "Mobile Device".to_string();
+                                                    }
+                                                    
+                                                    let latest_hlc = if let Ok(db_l) = db_listen.lock() {
+                                                        db_l.get_latest_hlc()
+                                                    } else { 0 };
+                                                    let hlc_str = if latest_hlc > 0 { latest_hlc.to_string() } else { String::new() };
+                                                    let msg_prefix = format!("CIPHERCLIP_DISCOVER:{}:{}:{}:{}:{}", expected_hash, instance_id_listen, my_ip, device_name, hlc_str);
+                                                    let sync_mac = crypto_for_listen.generate_sync_state_mac(&msg_prefix);
+                                                    let msg = format!("{}:{}", msg_prefix, sync_mac);                  
+                                                    let _ = socket.send_to(msg.as_bytes(), format!("{}:{}", actual_peer_ip, DISCOVERY_PORT));
+                                                }
+                                            }
+
                                             let db_upsert = db_listen.clone();
                                             let upsert_id = received_instance_id.to_string();
                                             let upsert_name = name.clone();

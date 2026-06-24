@@ -530,7 +530,7 @@ function App() {
         } catch(e) {}
         
         if (isMobile && clip.content_type === "image") {
-          alert("Directly copying images to the clipboard is not supported by Android/iOS. Double-tap the image to open the preview, then long-press it to Share or Save.");
+          showToast("Image copy not supported. Double-tap to preview, then long-press to Share/Save.");
           return;
         } else {
           await invoke("copy_attachment", { 
@@ -545,7 +545,7 @@ function App() {
         } catch(e) {}
         
         if (isMobile) {
-          alert("Directly copying images to the clipboard is not supported by Android/iOS. Double-tap the image to open the preview, then long-press it to Share or Save.");
+          showToast("Image copy not supported. Double-tap to preview, then long-press to Share/Save.");
           return;
         } else {
           const canvas = document.createElement('canvas');

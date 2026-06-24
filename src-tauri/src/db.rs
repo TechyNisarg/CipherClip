@@ -545,6 +545,12 @@ impl Database {
         Ok(())
     }
 
+    pub fn clear_all_peers(&self) -> SqlResult<()> {
+        self.conn.execute("DELETE FROM peer_sync_state", [])?;
+        self.conn.execute("DELETE FROM known_peers", [])?;
+        Ok(())
+    }
+
     pub fn apply_sync_events(&self, events: Vec<SyncEvent>) -> SqlResult<()> {
         let current_time = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
         for evt in events {
