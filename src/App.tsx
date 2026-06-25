@@ -131,7 +131,7 @@ function App() {
   const [theme, setTheme] = useState("system");
   const [hasMasterPassword, setHasMasterPassword] = useState(false);
   const [showPasswordSetup, setShowPasswordSetup] = useState(false);
-  const [showPasswordPrompt, setShowPasswordPrompt] = useState<{clipId: number, isAutoPaste: boolean, action: 'copy' | 'unlock'} | null>(null);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState<{clipId: number, isAutoPaste: boolean, action: 'copy' | 'unlock' | 'delete' | 'preview'} | null>(null);
   const [pendingLockId, setPendingLockId] = useState<number | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
   const [showPasswordIcon, setShowPasswordIcon] = useState(false);
@@ -606,7 +606,11 @@ function App() {
 
   const deleteClip = async (clip: ClipItem) => {
     if (clip.is_locked) {
-      setClipToDelete(clip);
+      if (hasMasterPassword) {
+        setShowPasswordPrompt({ clipId: clip.id, isAutoPaste: false, action: 'delete' });
+      } else {
+        setClipToDelete(clip);
+      }
     } else {
       executeDelete(clip.id);
     }
@@ -732,13 +736,35 @@ function App() {
     try {
       const isCorrect: boolean = await invoke("verify_master_password", { password: passwordInput });
       if (isCorrect) {
+        const clipToTarget = clips.find(c => c.id === showPasswordPrompt.clipId) || deletedClips.find(c => c.id === showPasswordPrompt.clipId);
+        
         if (showPasswordPrompt.action === 'copy') {
-          const clipToCopy = clips.find(c => c.id === showPasswordPrompt.clipId) || deletedClips.find(c => c.id === showPasswordPrompt.clipId);
-          if (clipToCopy) {
-            await handleCopy(clipToCopy, showPasswordPrompt.isAutoPaste, true);
+          if (clipToTarget) {
+            await handleCopy(clipToTarget, showPasswordPrompt.isAutoPaste, true);
           }
         } else if (showPasswordPrompt.action === 'unlock') {
           await toggleLock(showPasswordPrompt.clipId, true);
+        } else if (showPasswordPrompt.action === 'delete') {
+          await executeDelete(showPasswordPrompt.clipId);
+          showToast("Locked clip deleted");
+        } else if (showPasswordPrompt.action === 'preview') {
+          if (clipToTarget) {
+            try {
+              const rawUuid = clipToTarget.attachment_uuid || clipToTarget.attachment_path;
+              const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
+              if (uuid) {
+                const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
+                const mime = getMimeType(fullBase64);
+                setPreviewImageSrc(`data:${mime};base64,${fullBase64}`);
+              } else {
+                const mime = getMimeType(clipToTarget.content);
+                setPreviewImageSrc(`data:${mime};base64,${clipToTarget.content}`);
+              }
+            } catch(e) {
+              const mime = getMimeType(clipToTarget.content);
+              setPreviewImageSrc(`data:${mime};base64,${clipToTarget.content}`);
+            }
+          }
         }
         setShowPasswordPrompt(null);
         setPasswordInput("");
@@ -2147,7 +2173,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
   handleCopy: (c: ClipItem, autoPaste?: boolean) => void, 
   togglePin: (id: number, pinned: boolean) => void, 
   deleteClip: (clip: ClipItem) => void,
-  requestUnlock: (id: number, action: 'copy' | 'unlock', autoPaste?: boolean) => void,
+  requestUnlock: (id: number, action: 'copy' | 'unlock' | 'delete' | 'preview', autoPaste?: boolean) => void,
   toggleLock: (id: number, locked: boolean) => void,
   requestSetup: (id?: number) => void,
   onPreviewImage: (base64: string) => Promise<void>,
@@ -2156,6 +2182,25 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
 
   const isLocked = clip.is_locked;
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+
+  const executePreview = async () => {
+    setIsLoadingPreview(true);
+    try {
+      const rawUuid = clip.attachment_uuid || clip.attachment_path;
+      const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
+      if (uuid) {
+        const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
+        await onPreviewImage(fullBase64);
+      } else {
+        await onPreviewImage(clip.content);
+      }
+    } catch(e) {
+      console.error("Preview error:", e);
+      await onPreviewImage(clip.content);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
 
   return (
     <motion.div
@@ -2167,6 +2212,15 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
         }
       }}
       onDoubleClick={() => {
+        if (clip.content_type === "image" && isMobile) {
+          if (isLocked) {
+            requestUnlock(clip.id, 'preview', false);
+          } else {
+            executePreview();
+          }
+          return;
+        }
+
         if (isLocked) {
           requestUnlock(clip.id, 'copy', true);
         } else {
@@ -2259,26 +2313,11 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                 disabled={isLoadingPreview}
                 onClick={async (e) => {
                   e.stopPropagation();
-                  if (clip.is_locked && isLocked) {
-                    requestUnlock(clip.id, 'unlock', false);
+                  if (clip.is_locked) {
+                    requestUnlock(clip.id, 'preview', false);
                     return;
                   }
-                  setIsLoadingPreview(true);
-                  try {
-                    const rawUuid = clip.attachment_uuid || clip.attachment_path;
-                    const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
-                    if (uuid) {
-                      const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
-                      await onPreviewImage(fullBase64);
-                    } else {
-                      await onPreviewImage(clip.content);
-                    }
-                  } catch(e) {
-                    console.error("Preview error:", e);
-                    await onPreviewImage(clip.content);
-                  } finally {
-                    setIsLoadingPreview(false);
-                  }
+                  await executePreview();
                 }}
                 className={`${isMobile ? 'p-3' : 'p-1.5'} rounded-lg transition-colors cursor-pointer ${isLoadingPreview ? 'text-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800'}`}
               >
