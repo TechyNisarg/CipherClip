@@ -537,6 +537,8 @@ async fn copy_attachment(_app_handle: tauri::AppHandle, _path: String, _content_
 pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_share::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_log::Builder::new().build());
 

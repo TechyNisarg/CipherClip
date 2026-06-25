@@ -9,6 +9,7 @@ import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizo
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
+import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { Image as TauriImage } from '@tauri-apps/api/image';
 import { type as osType } from '@tauri-apps/plugin-os';
 
@@ -1064,44 +1065,50 @@ function App() {
               {isMobile && (
                 <>
                   <button 
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      const a = document.createElement('a');
-                      a.href = previewImageSrc;
-                      a.download = `cipherclip-${Date.now()}.png`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
+                      try {
+                        const response = await fetch(previewImageSrc);
+                        const buffer = await response.arrayBuffer();
+                        const filename = `cipherclip-${Date.now()}.png`;
+                        await writeFile(filename, new Uint8Array(buffer), { baseDir: BaseDirectory.Download });
+                        showToast("Image saved to Downloads folder");
+                      } catch(err) {
+                        setAlertModal({ message: "Failed to download image: " + err, isError: true });
+                      }
                     }}
-                    className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors"
+                    className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
                   >
-                    <Download className="w-6 h-6" />
+                    <Download className="w-5 h-5" />
                   </button>
                   <button 
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (navigator.share) {
-                        try {
-                          const response = await fetch(previewImageSrc);
-                          const blob = await response.blob();
-                          const file = new File([blob], `cipherclip-shared.png`, { type: blob.type });
-                          await navigator.share({ files: [file] });
-                        } catch (err) {
-                          console.error("Share failed", err);
-                        }
-                      } else {
-                        showToast("Sharing not supported on this device.");
+                      try {
+                        const { shareFile } = await import('tauri-plugin-share');
+                        const { documentDir, join } = await import('@tauri-apps/api/path');
+                        const response = await fetch(previewImageSrc);
+                        const buffer = await response.arrayBuffer();
+                        const filename = `cipherclip-share-${Date.now()}.png`;
+                        
+                        await writeFile(filename, new Uint8Array(buffer), { baseDir: BaseDirectory.Document });
+                        const docPath = await documentDir();
+                        const fullPath = await join(docPath, filename);
+                        
+                        await shareFile(fullPath, "image/png");
+                      } catch (err) {
+                        setAlertModal({ message: "Failed to share image: " + err, isError: true });
                       }
                     }}
-                    className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors"
+                    className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
                   >
-                    <Share2 className="w-6 h-6" />
+                    <Share2 className="w-5 h-5" />
                   </button>
                 </>
               )}
               <button 
                 onClick={() => setPreviewImageSrc(null)} 
-                className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors"
+                className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -2102,6 +2109,8 @@ function App() {
                 />
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onTouchStart={(e) => { e.preventDefault(); setShowPasswordIcon(prev => !prev); }}
                   onClick={() => setShowPasswordIcon(!showPasswordIcon)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
                 >
@@ -2173,6 +2182,8 @@ function App() {
                 />
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onTouchStart={(e) => { e.preventDefault(); setShowPasswordIcon(prev => !prev); }}
                   onClick={() => setShowPasswordIcon(!showPasswordIcon)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
                 >
