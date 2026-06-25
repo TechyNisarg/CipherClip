@@ -10,6 +10,11 @@
   "permissions": [
     "barcode-scanner:default",
     "clipboard-manager:default",
-    "os:default"
+    "os:default",
+    "fs:default",
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "$DOWNLOAD/**" }, { "path": "$DOCUMENT/**" }]
+    }
   ]
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
@@ -136,6 +136,7 @@ function App() {
   const [pendingLockId, setPendingLockId] = useState<number | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
   const [showPasswordIcon, setShowPasswordIcon] = useState(false);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
   const [settingsTab, setSettingsTab] = useState<'general' | 'sync' | 'data' | 'about'>('general');
   const [toast, setToast] = useState<string | null>(null);
   const [previewImageSrc, setPreviewImageSrc] = useState<string | null>(null);
@@ -2099,6 +2100,7 @@ function App() {
               </p>
               <div className="relative mb-6">
                 <input
+                  ref={passwordInputRef}
                   type={showPasswordIcon ? "text" : "password"}
                   value={passwordInput}
                   onChange={(e) => setPasswordInput(e.target.value)}
@@ -2110,8 +2112,15 @@ function App() {
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
-                  onTouchStart={(e) => { e.preventDefault(); setShowPasswordIcon(prev => !prev); }}
-                  onClick={() => setShowPasswordIcon(!showPasswordIcon)}
+                  onTouchStart={(e) => { 
+                    e.preventDefault(); 
+                    setShowPasswordIcon(prev => !prev); 
+                    setTimeout(() => passwordInputRef.current?.focus(), 50);
+                  }}
+                  onClick={() => {
+                    setShowPasswordIcon(!showPasswordIcon);
+                    setTimeout(() => passwordInputRef.current?.focus(), 50);
+                  }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
                 >
                   {showPasswordIcon ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -2170,6 +2179,7 @@ function App() {
               </p>
               <div className="relative mb-6">
                 <input
+                  ref={passwordInputRef}
                   type={showPasswordIcon ? "text" : "password"}
                   value={passwordInput}
                   autoFocus
@@ -2183,8 +2193,15 @@ function App() {
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
-                  onTouchStart={(e) => { e.preventDefault(); setShowPasswordIcon(prev => !prev); }}
-                  onClick={() => setShowPasswordIcon(!showPasswordIcon)}
+                  onTouchStart={(e) => { 
+                    e.preventDefault(); 
+                    setShowPasswordIcon(prev => !prev); 
+                    setTimeout(() => passwordInputRef.current?.focus(), 50);
+                  }}
+                  onClick={() => {
+                    setShowPasswordIcon(!showPasswordIcon);
+                    setTimeout(() => passwordInputRef.current?.focus(), 50);
+                  }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
                 >
                   {showPasswordIcon ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
