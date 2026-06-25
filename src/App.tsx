@@ -609,7 +609,7 @@ function App() {
       if (hasMasterPassword) {
         setShowPasswordPrompt({ clipId: clip.id, isAutoPaste: false, action: 'delete' });
       } else {
-        setClipToDelete(clip);
+        setAlertModal({ message: "You must set up your Master Password on this device to delete locked clips.", isError: true });
       }
     } else {
       executeDelete(clip.id);
@@ -1051,7 +1051,7 @@ function App() {
           >
             <button 
               onClick={() => setPreviewImageSrc(null)} 
-              className="absolute top-4 right-4 p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors z-10"
+              className="absolute top-12 md:top-6 right-4 md:right-6 p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors z-10"
             >
               <X className="w-6 h-6" />
             </button>
@@ -1061,7 +1061,8 @@ function App() {
               exit={{ scale: 0.95, opacity: 0 }}
               src={previewImageSrc} 
               alt="Preview" 
-              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+              style={{ WebkitTouchCallout: 'default', userSelect: 'auto', WebkitUserSelect: 'auto' }}
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl select-auto pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
             />
           </motion.div>
@@ -2095,7 +2096,7 @@ function App() {
                 <h2 className="text-lg font-semibold text-slate-800 dark:text-gray-100">Unlock Clip</h2>
               </div>
               <p className="text-sm text-slate-600 dark:text-gray-400 mb-4">
-                This clip contains sensitive information. Please enter your master password to unlock and copy it.
+                This clip contains sensitive information. Please enter your master password to unlock, copy, or delete it.
               </p>
               <div className="relative mb-6">
                 <input
