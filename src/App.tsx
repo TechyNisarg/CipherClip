@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Download, Share2 } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
@@ -121,7 +121,7 @@ function App() {
   const [showPairing, setShowPairing] = useState(false);
   const [syncKey, setSyncKey] = useState("");
   const [syncKeyInput, setSyncKeyInput] = useState("");
-  const [alertModal, setAlertModal] = useState<{message: string, isError: boolean} | null>(null);
+  const [alertModal, setAlertModal] = useState<{title?: string, message: string, isError: boolean, primaryAction?: {label: string, onClick: () => void}} | null>(null);
   const [showEncryptionModal, setShowEncryptionModal] = useState(false);
   const [showConfirmEmpty, setShowConfirmEmpty] = useState(false);
   const [clipToDelete, setClipToDelete] = useState<ClipItem | null>(null);
@@ -609,7 +609,18 @@ function App() {
       if (hasMasterPassword) {
         setShowPasswordPrompt({ clipId: clip.id, isAutoPaste: false, action: 'delete' });
       } else {
-        setAlertModal({ message: "You must set up your Master Password on this device to delete locked clips.", isError: true });
+        setAlertModal({ 
+          title: "Master Password Required",
+          message: "You must set up your Master Password on this device to delete locked clips.", 
+          isError: true,
+          primaryAction: {
+            label: "Set Password",
+            onClick: () => {
+              setAlertModal(null);
+              setTimeout(() => setShowPasswordSetup(true), 100);
+            }
+          }
+        });
       }
     } else {
       executeDelete(clip.id);
@@ -1049,12 +1060,52 @@ function App() {
             className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4"
             onClick={() => setPreviewImageSrc(null)}
           >
-            <button 
-              onClick={() => setPreviewImageSrc(null)} 
-              className="absolute top-12 md:top-6 right-4 md:right-6 p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors z-10"
-            >
-              <X className="w-6 h-6" />
-            </button>
+            <div className="absolute top-12 md:top-6 right-4 md:right-6 flex gap-3 z-10">
+              {isMobile && (
+                <>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const a = document.createElement('a');
+                      a.href = previewImageSrc;
+                      a.download = `cipherclip-${Date.now()}.png`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                    }}
+                    className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors"
+                  >
+                    <Download className="w-6 h-6" />
+                  </button>
+                  <button 
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (navigator.share) {
+                        try {
+                          const response = await fetch(previewImageSrc);
+                          const blob = await response.blob();
+                          const file = new File([blob], `cipherclip-shared.png`, { type: blob.type });
+                          await navigator.share({ files: [file] });
+                        } catch (err) {
+                          console.error("Share failed", err);
+                        }
+                      } else {
+                        showToast("Sharing not supported on this device.");
+                      }
+                    }}
+                    className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors"
+                  >
+                    <Share2 className="w-6 h-6" />
+                  </button>
+                </>
+              )}
+              <button 
+                onClick={() => setPreviewImageSrc(null)} 
+                className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
             <motion.img 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -1089,26 +1140,36 @@ function App() {
               <button onClick={() => setAlertModal(null)} className="absolute top-4 right-4 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors z-10"><X className="w-5 h-5" /></button>
               <div className={`p-4 border-b flex items-center gap-3 ${alertModal.isError ? 'border-red-100 dark:border-red-500/20 bg-red-50 dark:bg-red-500/10' : 'border-emerald-100 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/10'}`}>
                 <div className={`p-2 rounded-full ${alertModal.isError ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400' : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'}`}>
-                  {alertModal.isError ? <X className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                  {alertModal.isError ? <AlertTriangle className="w-5 h-5" /> : <Check className="w-5 h-5" />}
                 </div>
                 <h2 className={`font-semibold ${alertModal.isError ? 'text-red-800 dark:text-red-400' : 'text-emerald-800 dark:text-emerald-400'}`}>
-                  {alertModal.isError ? "Error" : "Success"}
+                  {alertModal.title || (alertModal.isError ? "Notice" : "Success")}
                 </h2>
               </div>
-              <div className="p-6 bg-slate-50/50 dark:bg-[#0d1117]/50">
-                <p className="text-sm text-slate-600 dark:text-gray-300 mb-6 leading-relaxed">
+              <div className="p-6 bg-slate-50/50 dark:bg-[#0d1117]/50 flex flex-col gap-6">
+                <p className="text-sm text-slate-600 dark:text-gray-300 leading-relaxed">
                   {alertModal.message}
                 </p>
-                <button
-                  onClick={() => setAlertModal(null)}
-                  className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    alertModal.isError 
-                      ? 'bg-slate-200 hover:bg-slate-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-200' 
-                      : 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
-                  }`}
-                >
-                  OK
-                </button>
+                <div className="flex gap-3 mt-2">
+                  <button
+                    onClick={() => setAlertModal(null)}
+                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      alertModal.isError 
+                        ? 'bg-slate-200 hover:bg-slate-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-800 dark:text-gray-200' 
+                        : 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                    }`}
+                  >
+                    Ok
+                  </button>
+                  {alertModal.primaryAction && (
+                    <button
+                      onClick={alertModal.primaryAction.onClick}
+                      className="flex-1 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors shadow-md shadow-indigo-500/20"
+                    >
+                      {alertModal.primaryAction.label}
+                    </button>
+                  )}
+                </div>
               </div>
             </motion.div>
           </motion.div>
