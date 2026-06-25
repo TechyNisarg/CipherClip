@@ -533,6 +533,32 @@ async fn copy_attachment(_app_handle: tauri::AppHandle, _path: String, _content_
     Err("copy_attachment is not supported on mobile".to_string())
 }
 
+#[tauri::command]
+fn scan_media_file(path: String) {
+    #[cfg(target_os = "android")]
+    {
+        if let Ok(vm) = tauri::android::jvm() {
+            let mut env = vm.attach_current_thread().unwrap();
+            let activity = tauri::android::activity();
+            
+            // Invoke MediaScannerConnection.scanFile via JNI
+            if let Ok(path_jstring) = env.new_string(&path) {
+                let _ = env.call_static_method(
+                    "android/media/MediaScannerConnection",
+                    "scanFile",
+                    "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
+                    &[
+                        activity.context().into(),
+                        env.new_object_array(1, "java/lang/String", path_jstring).unwrap().into(),
+                        env.new_object_array(1, "java/lang/String", env.new_string("image/png").unwrap()).unwrap().into(),
+                        env.new_global_ref(jni::objects::JObject::null()).unwrap().as_obj().into(),
+                    ],
+                );
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
@@ -691,7 +717,8 @@ pub fn run() {
             copy_attachment,
             get_connected_peers,
             disconnect_peer,
-            clear_blocks
+            clear_blocks,
+            scan_media_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

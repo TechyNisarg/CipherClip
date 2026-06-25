@@ -12,8 +12,13 @@
     "clipboard-manager:default",
     "os:default",
     "fs:default",
+    "share:default",
     {
       "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "$DOWNLOAD/**" }, { "path": "$DOCUMENT/**" }]
+    },
+    {
+      "identifier": "fs:allow-read-file",
       "allow": [{ "path": "$DOWNLOAD/**" }, { "path": "$DOCUMENT/**" }]
     }
   ]

@@ -1069,10 +1069,16 @@ function App() {
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
+                        const { downloadDir, join } = await import('@tauri-apps/api/path');
                         const response = await fetch(previewImageSrc);
                         const buffer = await response.arrayBuffer();
                         const filename = `cipherclip-${Date.now()}.png`;
                         await writeFile(filename, new Uint8Array(buffer), { baseDir: BaseDirectory.Download });
+                        
+                        const dDir = await downloadDir();
+                        const fullPath = await join(dDir, filename);
+                        await invoke("scan_media_file", { path: fullPath });
+                        
                         showToast("Image saved to Downloads folder");
                       } catch(err) {
                         setAlertModal({ message: "Failed to download image: " + err, isError: true });
@@ -1096,6 +1102,7 @@ function App() {
                         const docPath = await documentDir();
                         const fullPath = await join(docPath, filename);
                         
+                        await invoke("scan_media_file", { path: fullPath });
                         await shareFile(fullPath, "image/png");
                       } catch (err) {
                         setAlertModal({ message: "Failed to share image: " + err, isError: true });
