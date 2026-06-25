@@ -108,18 +108,21 @@ impl CryptoState {
 
     pub fn get_key_hex(app_dir: &std::path::PathBuf) -> Result<String, String> {
         let key_file = app_dir.join(".local_device_key");
-        let entry = Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())?;
-
-        match entry.get_password() {
-            Ok(hex_key) => Ok(hex_key),
-            Err(_) => {
-                if key_file.exists() {
-                    let hex_key = std::fs::read_to_string(&key_file).map_err(|e| e.to_string())?;
-                    Ok(hex_key.trim().to_string())
-                } else {
-                    Err("Key not found".to_string())
-                }
+        
+        let mut hex_key_opt = None;
+        if let Ok(entry) = Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+            if let Ok(hex) = entry.get_password() {
+                hex_key_opt = Some(hex);
             }
+        }
+        
+        if let Some(hex_key) = hex_key_opt {
+            Ok(hex_key)
+        } else if key_file.exists() {
+            let hex_key = std::fs::read_to_string(&key_file).map_err(|e| e.to_string())?;
+            Ok(hex_key.trim().to_string())
+        } else {
+            Err("Key not found".to_string())
         }
     }
 
@@ -134,8 +137,9 @@ impl CryptoState {
         let new_legacy_cipher = Aes256GcmSiv::new_from_slice(&key_bytes).map_err(|e| e.to_string())?;
 
         let key_file = app_dir.join(".local_device_key");
-        let entry = Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())?;
-        let _ = entry.set_password(hex_key);
+        if let Ok(entry) = Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+            let _ = entry.set_password(hex_key);
+        }
         let _ = std::fs::write(&key_file, hex_key);
 
         let mut cipher_lock = self.cipher.write().unwrap();
