@@ -94,6 +94,8 @@ impl Database {
         // Ensure event_log has the newer columns for users upgrading from older versions
         let _ = conn.execute("ALTER TABLE event_log ADD COLUMN has_attachment BOOLEAN DEFAULT 0", ());
         let _ = conn.execute("ALTER TABLE event_log ADD COLUMN attachment_path TEXT", ());
+        let _ = conn.execute("ALTER TABLE event_log ADD COLUMN content_type TEXT", ());
+        let _ = conn.execute("ALTER TABLE event_log ADD COLUMN payload BLOB", ());
 
         // Event-sourcing CRDT tables
         conn.execute(
@@ -182,8 +184,8 @@ impl Database {
         let event_type = "INSERT";
         let vector_clock = self.get_next_hlc();
         self.conn.execute(
-            "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![event_type, &uuid, &self.device_id, vector_clock, timestamp, has_attachment, attachment_path],
+            "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, content_type, payload, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![event_type, &uuid, &self.device_id, vector_clock, timestamp, content_type, encrypted_payload, has_attachment, attachment_path],
         )?;
 
         let new_id = self.conn.last_insert_rowid();
@@ -449,7 +451,12 @@ impl Database {
 
     pub fn get_events_since_hlc(&self, hlc_cursor: i64) -> SqlResult<Vec<SyncEvent>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path, c.pinned, c.is_locked 
+            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, 
+                    COALESCE(e.content_type, c.content_type) as content_type, 
+                    COALESCE(e.payload, c.encrypted_payload) as payload, 
+                    COALESCE(e.has_attachment, c.has_attachment, 0) as has_attachment, 
+                    COALESCE(e.attachment_path, c.attachment_path) as attachment_path, 
+                    c.pinned, c.is_locked 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              WHERE e.vector_clock > ?1
@@ -636,9 +643,11 @@ impl Database {
 
             let has_attach = evt.has_attachment.unwrap_or(false);
             let attach_path = evt.attachment_path.clone();
+            let ctype = evt.content_type.clone();
+            let payload_bytes = evt.payload.clone();
             let _ = self.conn.execute(
-                "INSERT OR IGNORE INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                rusqlite::params![&evt.event_type, &evt.clip_uuid, &evt.device_id, evt.vector_clock, evt.timestamp, has_attach, attach_path],
+                "INSERT OR IGNORE INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, content_type, payload, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                rusqlite::params![&evt.event_type, &evt.clip_uuid, &evt.device_id, evt.vector_clock, evt.timestamp, ctype, payload_bytes, has_attach, attach_path],
             );
             
             let _ = self.conn.execute(
@@ -652,7 +661,12 @@ impl Database {
 
     pub fn get_missing_events(&self, peer_clocks: &std::collections::HashMap<String, i64>, limit: i64) -> SqlResult<Vec<SyncEvent>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path, c.pinned, c.is_locked 
+            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, 
+                    COALESCE(e.content_type, c.content_type) as content_type, 
+                    COALESCE(e.payload, c.encrypted_payload) as payload, 
+                    COALESCE(e.has_attachment, c.has_attachment, 0) as has_attachment, 
+                    COALESCE(e.attachment_path, c.attachment_path) as attachment_path, 
+                    c.pinned, c.is_locked 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              ORDER BY e.timestamp ASC"
@@ -697,7 +711,12 @@ impl Database {
 
     pub fn get_recent_events(&self, limit: i64) -> SqlResult<Vec<SyncEvent>> {
         let mut stmt = self.conn.prepare(
-            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, c.content_type, c.encrypted_payload, c.has_attachment, c.attachment_path, c.pinned, c.is_locked 
+            "SELECT e.event_type, e.clip_uuid, e.device_id, e.vector_clock, e.timestamp, 
+                    COALESCE(e.content_type, c.content_type) as content_type, 
+                    COALESCE(e.payload, c.encrypted_payload) as payload, 
+                    COALESCE(e.has_attachment, c.has_attachment, 0) as has_attachment, 
+                    COALESCE(e.attachment_path, c.attachment_path) as attachment_path, 
+                    c.pinned, c.is_locked 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              WHERE e.device_id = ?1
