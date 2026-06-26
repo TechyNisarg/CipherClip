@@ -534,28 +534,31 @@ async fn copy_attachment(_app_handle: tauri::AppHandle, _path: String, _content_
 }
 
 #[tauri::command]
-fn scan_media_file(path: String) {
+fn scan_media_file(app: tauri::AppHandle, path: String) {
     #[cfg(target_os = "android")]
     {
-        if let Ok(vm) = tauri::android::jvm() {
-            let mut env = vm.attach_current_thread().unwrap();
-            let activity = tauri::android::activity();
-            
-            // Invoke MediaScannerConnection.scanFile via JNI
+        use tauri::Manager;
+        let _ = app.run_on_android_context(move |env, activity, _webview| {
             if let Ok(path_jstring) = env.new_string(&path) {
-                let _ = env.call_static_method(
-                    "android/media/MediaScannerConnection",
-                    "scanFile",
-                    "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
-                    &[
-                        activity.context().into(),
-                        env.new_object_array(1, "java/lang/String", path_jstring).unwrap().into(),
-                        env.new_object_array(1, "java/lang/String", env.new_string("image/png").unwrap()).unwrap().into(),
-                        env.new_global_ref(jni::objects::JObject::null()).unwrap().as_obj().into(),
-                    ],
-                );
+                if let Ok(mime_jstring) = env.new_string("image/png") {
+                    if let Ok(path_array) = env.new_object_array(1, "java/lang/String", &path_jstring) {
+                        if let Ok(mime_array) = env.new_object_array(1, "java/lang/String", &mime_jstring) {
+                            let _ = env.call_static_method(
+                                "android/media/MediaScannerConnection",
+                                "scanFile",
+                                "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
+                                &[
+                                    activity.into(),
+                                    (&path_array).into(),
+                                    (&mime_array).into(),
+                                    (&jni::objects::JObject::null()).into(),
+                                ],
+                            );
+                        }
+                    }
+                }
             }
-        }
+        });
     }
 }
 

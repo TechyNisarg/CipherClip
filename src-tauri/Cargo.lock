@@ -144,6 +144,7 @@ dependencies = [
  "hmac",
  "image",
  "indicatif",
+ "jni 0.21.1",
  "keyring",
  "local-ip-address",
  "log",
