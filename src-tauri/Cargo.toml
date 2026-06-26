@@ -62,3 +62,7 @@ jni = "0.21.1"
 indicatif = "0.18.4"
 tempfile = "3.8.1"
 tokio = { version = "1.52.3", features = ["full"] }
+
+[[bin]]
+name = "test_sync"
+path = "src/test_sync.rs"

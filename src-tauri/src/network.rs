@@ -519,14 +519,18 @@ impl NetworkManager {
                                                 if let Some(pushed_arr) = req_val["pushed_events"].as_array() {
                                                     let mut pushed_events = Vec::new();
                                                     for evt in pushed_arr {
-                                                        if let Ok(e) = serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
-                                                            pushed_events.push(e);
+                                                        match serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
+                                                            Ok(e) => pushed_events.push(e),
+                                                            Err(err) => println!("Failed to parse SyncEvent in SYNC_REQ: {:?}", err),
                                                         }
                                                     }
                                                     if !pushed_events.is_empty() {
                                                         let events_clone = pushed_events.clone();
                                                         if let Ok(db_lock) = db_c.lock() {
-                                                            let _ = db_lock.apply_sync_events(pushed_events);
+                                                            match db_lock.apply_sync_events(pushed_events) {
+                                                              Ok(_) => println!("Successfully applied SYNC_REQ pushed events"),
+                                                              Err(e) => println!("Error applying SYNC_REQ pushed events: {:?}", e),
+                                                          }
                                                             let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
                                                         }
                                                         for e in events_clone {
@@ -592,13 +596,17 @@ impl NetworkManager {
                                             if let Some(events_arr) = res_val["events"].as_array() {
                                                 let mut events = Vec::new();
                                                 for evt in events_arr {
-                                                    if let Ok(e) = serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
-                                                        events.push(e);
+                                                    match serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
+                                                        Ok(e) => events.push(e),
+                                                        Err(err) => println!("Failed to parse SyncEvent in SYNC_RES: {:?}", err),
                                                     }
                                                 }
                                                 let events_clone = events.clone();
                                                 if let Ok(db_lock) = db_c.lock() {
-                                                    let _ = db_lock.apply_sync_events(events);
+                                                      match db_lock.apply_sync_events(events) {
+                                                          Ok(_) => println!("Successfully applied SYNC_RES events"),
+                                                          Err(e) => println!("Error applying SYNC_RES events: {:?}", e),
+                                                      }
                                                     let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
                                                 }
                                                 for e in events_clone {

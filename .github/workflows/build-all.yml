@@ -91,6 +91,9 @@ jobs:
       - name: Install NDK
         run: sdkmanager "ndk;27.0.12077973" "build-tools;34.0.0" "platforms;android-34"
 
+      - name: Add NDK to PATH
+        run: echo "${ANDROID_HOME}/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
       - name: install app dependencies
         run: npm install
 
