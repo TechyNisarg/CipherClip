@@ -1,8 +1,8 @@
 use app_lib::db::Database;
-use app_lib::network::SyncEvent;
+use app_lib::db::SyncEvent;
 use std::sync::{Arc, Mutex};
 fn main() {
-    let db = Database::new("test_sync.db").unwrap();
+    let db = Database::new("test_sync.db".into(), "device1".into()).unwrap();
     let evt = SyncEvent {
         event_type: "INSERT".to_string(),
         clip_uuid: "1234".to_string(),
