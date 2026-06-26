@@ -515,7 +515,7 @@ impl Database {
     }
 
     pub fn get_all_sync_states(&self) -> SqlResult<std::collections::HashMap<String, i64>> {
-        let mut stmt = self.conn.prepare("SELECT peer_id, acknowledged_clock FROM peer_sync_state WHERE author_id = ?1")?;
+        let mut stmt = self.conn.prepare("SELECT author_id, acknowledged_clock FROM peer_sync_state WHERE peer_id = ?1")?;
         let states = stmt.query_map([&self.device_id], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })?;
@@ -528,10 +528,10 @@ impl Database {
         Ok(map)
     }
 
-    pub fn get_peer_sync_state(&self, peer_id: &str) -> SqlResult<i64> {
+    pub fn get_peer_sync_state(&self, author_id: &str) -> SqlResult<i64> {
         let clock: i64 = self.conn.query_row(
-            "SELECT acknowledged_clock FROM peer_sync_state WHERE author_id = ?1 AND peer_id = ?2",
-            [&self.device_id, peer_id],
+            "SELECT acknowledged_clock FROM peer_sync_state WHERE peer_id = ?1 AND author_id = ?2",
+            [&self.device_id, author_id],
             |row| row.get(0),
         ).unwrap_or(0);
         Ok(clock)
