@@ -534,31 +534,33 @@ async fn copy_attachment(_app_handle: tauri::AppHandle, _path: String, _content_
 }
 
 #[tauri::command]
-fn scan_media_file(app: tauri::AppHandle, path: String) {
+fn scan_media_file(path: String) {
     #[cfg(target_os = "android")]
     {
-        use tauri::Manager;
-        let _ = app.run_on_android_context(move |env, activity, _webview| {
-            if let Ok(path_jstring) = env.new_string(&path) {
-                if let Ok(mime_jstring) = env.new_string("image/png") {
-                    if let Ok(path_array) = env.new_object_array(1, "java/lang/String", &path_jstring) {
-                        if let Ok(mime_array) = env.new_object_array(1, "java/lang/String", &mime_jstring) {
-                            let _ = env.call_static_method(
-                                "android/media/MediaScannerConnection",
-                                "scanFile",
-                                "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
-                                &[
-                                    activity.into(),
-                                    (&path_array).into(),
-                                    (&mime_array).into(),
-                                    (&jni::objects::JObject::null()).into(),
-                                ],
-                            );
-                        }
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.unwrap();
+        let mut env = vm.attach_current_thread().unwrap();
+        let activity = unsafe { jni::objects::JObject::from_raw(ctx.context().cast()) };
+
+        if let Ok(path_jstring) = env.new_string(&path) {
+            if let Ok(mime_jstring) = env.new_string("image/png") {
+                if let Ok(path_array) = env.new_object_array(1, "java/lang/String", &path_jstring) {
+                    if let Ok(mime_array) = env.new_object_array(1, "java/lang/String", &mime_jstring) {
+                        let _ = env.call_static_method(
+                            "android/media/MediaScannerConnection",
+                            "scanFile",
+                            "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
+                            &[
+                                (&activity).into(),
+                                (&path_array).into(),
+                                (&mime_array).into(),
+                                (&jni::objects::JObject::null()).into(),
+                            ],
+                        );
                     }
                 }
             }
-        });
+        }
     }
 }
 
