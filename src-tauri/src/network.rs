@@ -32,6 +32,7 @@ pub struct NetworkManager {
     instance_id: String,
     settings: Arc<crate::settings::SettingsManager>,
     last_catchup: Arc<Mutex<HashMap<String, Instant>>>,
+    ui_callback: Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>,
 }
 
 #[derive(serde::Serialize)]
@@ -81,7 +82,7 @@ impl NetworkManager {
 
         if NETWORK_INITIALIZED.swap(true, Ordering::SeqCst) {
             println!("NetworkManager already initialized! Skipping thread spawn.");
-            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone(), settings: settings.clone(), last_catchup };
+            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone(), settings: settings.clone(), last_catchup, ui_callback };
         }
 
         // 1. UDP Discovery Broadcaster
@@ -156,6 +157,7 @@ impl NetworkManager {
         let settings_clone = settings.clone();
         let db_listen = db.clone();
         let last_catchup_clone = last_catchup.clone();
+        let ui_callback_listen = ui_callback.clone();
         thread::spawn(move || {
             let socket = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
                 Ok(s) => {
@@ -279,11 +281,87 @@ impl NetworkManager {
                                                     };
                                                     
                                                     if should_catchup {
-                                                        // Start catch-up in a separate thread to avoid blocking UDP listener
                                                         let catchup_ip = actual_peer_ip.clone();
                                                         let crypto_catchup = crypto_for_listen.clone();
                                                         let db_catchup = db_listen.clone();
+                                                        let ui_callback_catchup = ui_callback_listen.clone();
                                                         std::thread::spawn(move || {
+                                                            // ── PULL: send SYNC_REQ to peer so peer sends us what we're missing ──
+                                                            // This works regardless of whether the peer can TCP-connect back to us
+                                                            // (important for mobile where Android may block incoming connections).
+                                                            if let Ok(mut stream) = connect_tcp((catchup_ip.as_str(), TCP_PORT)) {
+                                                                let map_opt = if let Ok(db_l) = db_catchup.lock() {
+                                                                    let device_id = db_l.device_id.clone();
+                                                                    db_l.get_all_sync_states().ok().map(|map| (device_id, map))
+                                                                } else { None };
+
+                                                                if let Some((device_id, map)) = map_opt {
+                                                                    // Also push our own recent events so the peer stays up-to-date
+                                                                    let pushed_events = if let Ok(db_l) = db_catchup.lock() {
+                                                                        db_l.get_recent_events(200).unwrap_or_default()
+                                                                    } else { vec![] };
+
+                                                                    let req_payload = serde_json::json!({
+                                                                        "device_id": device_id,
+                                                                        "peer_sync_state": map,
+                                                                        "pushed_events": pushed_events
+                                                                    }).to_string();
+
+                                                                    if let Ok(req_enc) = crypto_catchup.encrypt(req_payload.as_bytes()) {
+                                                                        let msg_type = b"SYNC_REQ";
+                                                                        let mut buf = Vec::new();
+                                                                        buf.push(msg_type.len() as u8);
+                                                                        buf.extend_from_slice(msg_type);
+                                                                        buf.extend_from_slice(&(req_enc.len() as u32).to_be_bytes());
+                                                                        buf.extend_from_slice(&req_enc);
+                                                                        if stream.write_all(&buf).is_ok() {
+                                                                            // Read the SYNC_RES back from peer
+                                                                            let mut type_len_buf = [0u8; 1];
+                                                                            if stream.read_exact(&mut type_len_buf).is_ok() {
+                                                                                let type_len = type_len_buf[0] as usize;
+                                                                                let mut type_buf = vec![0u8; type_len];
+                                                                                if stream.read_exact(&mut type_buf).is_ok() {
+                                                                                    let res_type = String::from_utf8_lossy(&type_buf).to_string();
+                                                                                    if res_type == "SYNC_RES" {
+                                                                                        let mut len_buf = [0u8; 4];
+                                                                                        if stream.read_exact(&mut len_buf).is_ok() {
+                                                                                            let res_len = u32::from_be_bytes(len_buf) as usize;
+                                                                                            if res_len < 50 * 1024 * 1024 {
+                                                                                                let mut res_buf = vec![0u8; res_len];
+                                                                                                if stream.read_exact(&mut res_buf).is_ok() {
+                                                                                                    if let Ok(decrypted) = crypto_catchup.decrypt(&res_buf) {
+                                                                                                        if let Ok(json_str) = String::from_utf8(decrypted) {
+                                                                                                            if let Ok(res_val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                                                                                                if let Some(events_arr) = res_val["events"].as_array() {
+                                                                                                                    let mut events = Vec::new();
+                                                                                                                    for evt in events_arr {
+                                                                                                                        if let Ok(e) = serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
+                                                                                                                            events.push(e);
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                    if !events.is_empty() {
+                                                                                                                        if let Ok(db_l) = db_catchup.lock() {
+                                                                                                                            let _ = db_l.apply_sync_events(events);
+                                                                                                                        }
+                                                                                                                        ui_callback_catchup("clipboard-update", serde_json::json!({}));
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            // ── PUSH (legacy): also try pushing our events to peer if we have more ──
+                                                            // This helps when the peer can receive but not send (e.g. behind firewall)
                                                             let events = if let Ok(db) = db_catchup.lock() {
                                                                 db.get_events_since_hlc(peer_hlc).unwrap_or_default()
                                                             } else {
@@ -292,7 +370,6 @@ impl NetworkManager {
                                                             
                                                             if events.is_empty() { return; }
                                                             
-                                                            // Push events to peer in batches of 50
                                                             if let Ok(mut stream) = connect_tcp((catchup_ip.as_str(), TCP_PORT)) {
                                                                 let mut i = 0;
                                                                 while i < events.len() {
@@ -363,6 +440,7 @@ impl NetworkManager {
         let crypto_tcp = crypto_for_tcp.clone();
         let blocked_ips_tcp = blocked_ips.clone();
         let peers_tcp = peers.clone();
+        let ui_callback_tcp = ui_callback.clone();
         thread::spawn(move || {
             if let Ok(listener) = TcpListener::bind(("0.0.0.0", TCP_PORT)) {
                 for stream_res in listener.incoming() {
@@ -380,7 +458,7 @@ impl NetworkManager {
                             }
                             let crypto_c = crypto_tcp.clone();
                         let db_c = db.clone();
-                        let ui_callback_c = ui_callback.clone();
+                        let ui_callback_c = ui_callback_tcp.clone();
                         let app_data_dir_c = app_data_dir.clone();
                         let peers_c = peers_tcp.clone();
 
@@ -561,25 +639,25 @@ impl NetworkManager {
                                                         peer_clocks.insert(k.clone(), c);
                                                     }
                                                 }
-                                                let missing_events_opt = if let Ok(db_lock) = db_c.lock() {
-                                                    db_lock.get_missing_events(&peer_clocks, 50).ok()
-                                                } else { None };
+                                                let missing_events = if let Ok(db_lock) = db_c.lock() {
+                                                    db_lock.get_missing_events(&peer_clocks, 50).unwrap_or_default()
+                                                } else { vec![] };
 
-                                                if let Some(missing_events) = missing_events_opt {
-                                                    let res_payload = serde_json::json!({
-                                                        "events": missing_events
-                                                    }).to_string();
-                                                    
-                                                    if let Ok(res_enc) = crypto_c.encrypt(res_payload.as_bytes()) {
-                                                        let msg_type = b"SYNC_RES";
-                                                        let mut buf = Vec::new();
-                                                        buf.push(msg_type.len() as u8);
-                                                        buf.extend_from_slice(msg_type);
-                                                        buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
-                                                        buf.extend_from_slice(&res_enc);
-                                                        let mut write_stream = stream.try_clone().expect("clone stream failed");
-                                                        let _ = std::io::Write::write_all(&mut write_stream, &buf);
-                                                    }
+                                                // Always send SYNC_RES (even empty) so the client
+                                                // doesn't hang waiting for a response.
+                                                let res_payload = serde_json::json!({
+                                                    "events": missing_events
+                                                }).to_string();
+                                                
+                                                if let Ok(res_enc) = crypto_c.encrypt(res_payload.as_bytes()) {
+                                                    let msg_type = b"SYNC_RES";
+                                                    let mut buf = Vec::new();
+                                                    buf.push(msg_type.len() as u8);
+                                                    buf.extend_from_slice(msg_type);
+                                                    buf.extend_from_slice(&(res_enc.len() as u32).to_be_bytes());
+                                                    buf.extend_from_slice(&res_enc);
+                                                    let mut write_stream = stream.try_clone().expect("clone stream failed");
+                                                    let _ = std::io::Write::write_all(&mut write_stream, &buf);
                                                 }
                                             }
                                         }
@@ -660,7 +738,7 @@ impl NetworkManager {
             }
         });
 
-        Self { peers, blocked_ips, crypto, instance_id: instance_id_str, settings, last_catchup }
+        Self { peers, blocked_ips, crypto, instance_id: instance_id_str, settings, last_catchup, ui_callback }
     }
 
     
@@ -669,6 +747,7 @@ impl NetworkManager {
         for peer_ip in peers {
             let db_clone = db.clone();
             let crypto_clone = self.crypto.clone();
+            let ui_callback_clone = self.ui_callback.clone();
             std::thread::spawn(move || {
                 if let Ok(mut stream) = connect_tcp((peer_ip.as_str(), TCP_PORT)) {
                     let map_opt = if let Ok(db_l) = db_clone.lock() {
@@ -692,7 +771,48 @@ impl NetworkManager {
                             buf.extend_from_slice(msg_type);
                             buf.extend_from_slice(&(encrypted.len() as u32).to_be_bytes());
                             buf.extend_from_slice(&encrypted);
-                            let _ = std::io::Write::write_all(&mut stream, &buf);
+                            if std::io::Write::write_all(&mut stream, &buf).is_ok() {
+                                // Read the SYNC_RES that the peer sends back on this same connection
+                                let mut type_len_buf = [0u8; 1];
+                                if stream.read_exact(&mut type_len_buf).is_ok() {
+                                    let type_len = type_len_buf[0] as usize;
+                                    let mut type_buf = vec![0u8; type_len];
+                                    if stream.read_exact(&mut type_buf).is_ok() {
+                                        let res_type = String::from_utf8_lossy(&type_buf).to_string();
+                                        if res_type == "SYNC_RES" {
+                                            let mut len_buf = [0u8; 4];
+                                            if stream.read_exact(&mut len_buf).is_ok() {
+                                                let res_len = u32::from_be_bytes(len_buf) as usize;
+                                                if res_len < 50 * 1024 * 1024 {
+                                                    let mut res_buf = vec![0u8; res_len];
+                                                    if stream.read_exact(&mut res_buf).is_ok() {
+                                                        if let Ok(decrypted) = crypto_clone.decrypt(&res_buf) {
+                                                            if let Ok(json_str) = String::from_utf8(decrypted) {
+                                                                if let Ok(res_val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                                                    if let Some(events_arr) = res_val["events"].as_array() {
+                                                                        let mut events = Vec::new();
+                                                                        for evt in events_arr {
+                                                                            if let Ok(e) = serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
+                                                                                events.push(e);
+                                                                            }
+                                                                        }
+                                                                        if !events.is_empty() {
+                                                                            if let Ok(db_l) = db_clone.lock() {
+                                                                                let _ = db_l.apply_sync_events(events);
+                                                                            }
+                                                                            ui_callback_clone("clipboard-update", serde_json::json!({}));
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

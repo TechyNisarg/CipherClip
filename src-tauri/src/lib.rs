@@ -654,6 +654,24 @@ pub fn run() {
                 network.clone(),
             );
 
+            // ── Mobile: periodic sync poll ──
+            // Android may block incoming TCP connections from the desktop,
+            // so mobile must actively pull from peers every few seconds.
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            {
+                let network_poll = network.clone();
+                let db_poll = db.clone();
+                let app_handle_poll = app.handle().clone();
+                std::thread::spawn(move || {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        network_poll.trigger_sync(db_poll.clone());
+                        let _ = app_handle_poll.emit("sync-poll", ());
+                    }
+                });
+            }
+
+
             // Register global shortcut
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
