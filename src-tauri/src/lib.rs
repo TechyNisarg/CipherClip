@@ -481,6 +481,25 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_attachment_path_str(app_handle: tauri::AppHandle, uuid: String) -> Result<String, String> {
+    use tauri::Manager;
+    let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
+    
+    let path = storage.get_attachment_path(&uuid);
+    if path.exists() {
+        Ok(path.to_string_lossy().to_string())
+    } else {
+        let legacy = storage.get_legacy_attachment_path(&uuid);
+        if legacy.exists() {
+            Ok(legacy.to_string_lossy().to_string())
+        } else {
+            Err("Attachment not found locally.".into())
+        }
+    }
+}
+
+#[tauri::command]
 async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<String, String> {
     use tauri::Manager;
     use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -563,54 +582,7 @@ async fn copy_attachment(_app_handle: tauri::AppHandle, _path: String, _content_
     Err("copy_attachment is not supported on mobile".to_string())
 }
 
-#[tauri::command]
-fn scan_media_file(path: String) {
-    #[cfg(target_os = "android")]
-    {
-        let ctx = ndk_context::android_context();
-        let vm_ptr = ctx.vm();
-        let context_ptr = ctx.context();
-        if vm_ptr.is_null() || context_ptr.is_null() {
-            println!("ndk_context is not initialized, skipping media scan");
-            return;
-        }
-        let vm = match unsafe { jni::JavaVM::from_raw(vm_ptr.cast()) } {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        let mut env = match vm.attach_current_thread() {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-        let activity = unsafe { jni::objects::JObject::from_raw(context_ptr.cast()) };
 
-        if let Ok(path_jstring) = env.new_string(&path) {
-            if let Ok(mime_jstring) = env.new_string("image/png") {
-                if let Ok(path_array) = env.new_object_array(1, "java/lang/String", &path_jstring) {
-                    if let Ok(mime_array) = env.new_object_array(1, "java/lang/String", &mime_jstring) {
-                        let res = env.call_static_method(
-                            "android/media/MediaScannerConnection",
-                            "scanFile",
-                            "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
-                            &[
-                                (&activity).into(),
-                                (&path_array).into(),
-                                (&mime_array).into(),
-                                (&jni::objects::JObject::null()).into(),
-                            ],
-                        );
-                        if let Err(e) = res {
-                            println!("MediaScannerConnection failed: {:?}", e);
-                            if env.exception_check().unwrap_or(false) {
-                                let _ = env.exception_clear();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -762,6 +734,7 @@ pub fn run() {
             get_history,
             add_mobile_clip,
             get_attachment_bytes,
+            get_attachment_path_str,
             toggle_pin,
             delete_clip,
             get_settings,
@@ -789,8 +762,7 @@ pub fn run() {
             export_attachment,
             get_connected_peers,
             disconnect_peer,
-            clear_blocks,
-            scan_media_file
+            clear_blocks
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

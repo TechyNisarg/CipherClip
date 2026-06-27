@@ -39,21 +39,24 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
   // Use the inline thumbnail preview initially if available, fallback to full webp/jpeg based on content
   const [src, setSrc] = useState<string>(clip.content ? `data:${getMimeType(clip.content)};base64,${clip.content}` : '');
   const [hasError, setHasError] = useState(false);
+  const isMounted = useRef(true);
 
   useEffect(() => {
+    isMounted.current = true;
     setHasError(false);
-    if (clip.has_attachment && (clip.attachment_uuid || clip.attachment_path) && !isDownloading) {
+    if (clip.has_attachment) {
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
-        invoke<string>("get_attachment_bytes", { uuid })
-          .then(base64 => {
-            setSrc(`data:${getMimeType(base64)};base64,${base64}`);
+        invoke<string>("get_attachment_path_str", { uuid })
+          .then(path => {
+            if (isMounted.current) {
+              setSrc(convertFileSrc(path));
+            }
           })
           .catch(e => {
             console.error("Failed to load attachment image:", e);
-            // On mobile, the attachment_path might be a Windows path from the peer.
-            // If get_attachment_bytes fails (meaning it's not local and we couldn't download it),
+            // If get_attachment_path_str fails (meaning it's not local and we couldn't download it),
             // fallback to the inline thumbnail if available.
             if (clip.content) {
               setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
@@ -1069,10 +1072,8 @@ function App() {
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
-                        const { downloadDir, join } = await import('@tauri-apps/api/path');
-                        let fullPath = "";
                         if (previewImage.uuid) {
-                          fullPath = await invoke<string>("export_attachment", { uuid: previewImage.uuid, destinationType: "download" });
+                          await invoke<string>("export_attachment", { uuid: previewImage.uuid, destinationType: "download" });
                         } else {
                           const b64Data = previewImage.src.split(',')[1];
                           const binaryString = atob(b64Data);
@@ -1082,10 +1083,7 @@ function App() {
                           }
                           const filename = `cipherclip-${Date.now()}.png`;
                           await writeFile(filename, bytes, { baseDir: BaseDirectory.Download });
-                          const dDir = await downloadDir();
-                          fullPath = await join(dDir, filename);
                         }
-                        await invoke("scan_media_file", { path: fullPath });
                         showToast("Image saved to Downloads folder");
                       } catch(err) {
                         setAlertModal({ message: "Failed to download image: " + err, isError: true });
@@ -1116,7 +1114,6 @@ function App() {
                           const docPath = await documentDir();
                           fullPath = await join(docPath, filename);
                         }
-                        await invoke("scan_media_file", { path: fullPath });
                         await shareFile(fullPath, "image/png");
                       } catch (err) {
                         setAlertModal({ message: "Failed to share image: " + err, isError: true });
@@ -1124,7 +1121,7 @@ function App() {
                     }}
                     className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
                   >
-                    <Share2 className="w-5 h-5 -ml-0.5" />
+                    <Share2 className="w-5 h-5" style={{ marginLeft: '-3px' }} />
                   </button>
                 </>
               )}
