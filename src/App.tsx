@@ -70,7 +70,7 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
     } else if (clip.content) {
       setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
     }
-  }, [clip, isDownloading]);
+  }, [clip.attachment_uuid, clip.attachment_path, clip.has_attachment, isDownloading]);
 
   return (src && !hasError) ? (
     <img 
