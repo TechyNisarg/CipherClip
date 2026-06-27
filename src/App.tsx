@@ -70,7 +70,7 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
     } else if (clip.content) {
       setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
     }
-  }, [clip.attachment_uuid, clip.attachment_path, clip.has_attachment, isDownloading]);
+  }, [clip.attachment_path, clip.has_attachment, isDownloading]);
 
   return (src && !hasError) ? (
     <img 
@@ -2265,6 +2265,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
 }) {
 
   const isLocked = clip.is_locked;
+  const attachmentUuid = clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const executePreview = async () => {
@@ -2362,12 +2363,12 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
           ) : clip.content_type === "image" ? (
             <Tooltip text="Double-click to paste image">
               <div 
-                className="relative w-full rounded-lg overflow-hidden border border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-48 flex items-center justify-center group/img"
+                className="relative w-full rounded-lg overflow-hidden border border-slate-200 dark:border-gray-800 bg-slate-100 dark:bg-[#0d1117] max-h-96 group/img"
               >
                 <AttachmentImage 
                   clip={clip}
-                  isDownloading={clip.attachment_uuid ? downloadingClips.has(clip.attachment_uuid) : false}
-                  className="w-full h-48 object-contain rounded-lg transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
+                  isDownloading={attachmentUuid ? downloadingClips.has(attachmentUuid) : false}
+                  className="w-full h-auto max-h-96 object-cover rounded-lg transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
                 />
               </div>
             </Tooltip>
