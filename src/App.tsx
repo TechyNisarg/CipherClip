@@ -44,7 +44,18 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
   useEffect(() => {
     isMounted.current = true;
     setHasError(false);
-    if (clip.has_attachment) {
+
+    // On Mobile, large high-res images can fail to render fully or hit WebView asset constraints.
+    // The compressed base64 thumbnail is perfectly sized for the small inline feed.
+    // The full high-res image is loaded reliably via base64 bytes on double-click preview.
+    if (isMobile) {
+      if (clip.content) {
+        setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
+      }
+      return;
+    }
+
+    if (clip.has_attachment && !isDownloading) {
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
@@ -60,7 +71,7 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
             // fallback to the inline thumbnail if available.
             if (clip.content) {
               setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
-            } else if (clip.attachment_path && !isMobile) {
+            } else if (clip.attachment_path) {
               setSrc(convertFileSrc(clip.attachment_path));
             } else {
               setHasError(true);
