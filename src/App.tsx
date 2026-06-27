@@ -1070,10 +1070,14 @@ function App() {
                       e.stopPropagation();
                       try {
                         const { downloadDir, join } = await import('@tauri-apps/api/path');
-                        const response = await fetch(previewImageSrc);
-                        const buffer = await response.arrayBuffer();
+                        const b64Data = previewImageSrc.split(',')[1];
+                        const binaryString = atob(b64Data);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                          bytes[i] = binaryString.charCodeAt(i);
+                        }
                         const filename = `cipherclip-${Date.now()}.png`;
-                        await writeFile(filename, new Uint8Array(buffer), { baseDir: BaseDirectory.Download });
+                        await writeFile(filename, bytes, { baseDir: BaseDirectory.Download });
                         
                         const dDir = await downloadDir();
                         const fullPath = await join(dDir, filename);
@@ -1094,11 +1098,15 @@ function App() {
                       try {
                         const { shareFile } = await import('tauri-plugin-share');
                         const { documentDir, join } = await import('@tauri-apps/api/path');
-                        const response = await fetch(previewImageSrc);
-                        const buffer = await response.arrayBuffer();
+                        const b64Data = previewImageSrc.split(',')[1];
+                        const binaryString = atob(b64Data);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                          bytes[i] = binaryString.charCodeAt(i);
+                        }
                         const filename = `cipherclip-share-${Date.now()}.png`;
                         
-                        await writeFile(filename, new Uint8Array(buffer), { baseDir: BaseDirectory.Document });
+                        await writeFile(filename, bytes, { baseDir: BaseDirectory.Document });
                         const docPath = await documentDir();
                         const fullPath = await join(docPath, filename);
                         
@@ -1110,7 +1118,7 @@ function App() {
                     }}
                     className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
                   >
-                    <Share2 className="w-5 h-5" />
+                    <Share2 className="w-5 h-5 -ml-0.5" />
                   </button>
                 </>
               )}
