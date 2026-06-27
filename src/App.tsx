@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Download, Share2 } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2 } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
@@ -536,7 +536,7 @@ function App() {
         } catch(e) {}
         
         if (isMobile && clip.content_type === "image") {
-          showToast("Image copy not supported. Double-tap to preview, then long-press to Share/Save.");
+          showToast("Image copy not supported. Double-tap to preview, then use the Share button.");
           return;
         } else {
           await invoke("copy_attachment", { 
@@ -551,7 +551,7 @@ function App() {
         } catch(e) {}
         
         if (isMobile) {
-          showToast("Image copy not supported. Double-tap to preview, then long-press to Share/Save.");
+          showToast("Image copy not supported. Double-tap to preview, then use the Share button.");
           return;
         } else {
           const canvas = document.createElement('canvas');
@@ -1068,31 +1068,7 @@ function App() {
             <div className="absolute top-12 md:top-6 right-4 md:right-6 flex gap-3 z-10">
               {isMobile && (
                 <>
-                  <button 
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      try {
-                        if (previewImage.uuid) {
-                          await invoke<string>("export_attachment", { uuid: previewImage.uuid, destinationType: "download" });
-                        } else {
-                          const b64Data = previewImage.src.split(',')[1];
-                          const binaryString = atob(b64Data);
-                          const bytes = new Uint8Array(binaryString.length);
-                          for (let i = 0; i < binaryString.length; i++) {
-                            bytes[i] = binaryString.charCodeAt(i);
-                          }
-                          const filename = `cipherclip-${Date.now()}.png`;
-                          await writeFile(filename, bytes, { baseDir: BaseDirectory.Download });
-                        }
-                        showToast("Image saved to Downloads folder");
-                      } catch(err) {
-                        setAlertModal({ message: "Failed to download image: " + err, isError: true });
-                      }
-                    }}
-                    className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
-                  >
-                    <Download className="w-5 h-5" />
-                  </button>
+
                   <button 
                     onClick={async (e) => {
                       e.stopPropagation();
@@ -2391,7 +2367,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                 <AttachmentImage 
                   clip={clip}
                   isDownloading={clip.attachment_uuid ? downloadingClips.has(clip.attachment_uuid) : false}
-                  className="w-full h-48 object-cover rounded-lg transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
+                  className="w-full h-48 object-contain rounded-lg transition-transform group-hover/img:scale-[1.02] cursor-grab active:cursor-grabbing"
                 />
               </div>
             </Tooltip>
