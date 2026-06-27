@@ -498,6 +498,36 @@ async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Res
     Ok(STANDARD.encode(bytes))
 }
 
+#[tauri::command]
+async fn export_attachment(app_handle: tauri::AppHandle, uuid: String, destination_type: String) -> Result<String, String> {
+    use tauri::Manager;
+    let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
+    
+    let src_path = storage.get_attachment_path(&uuid);
+    if !src_path.exists() {
+        return Err("Attachment not found locally.".into());
+    }
+
+    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+    let filename = if destination_type == "share" {
+        format!("cipherclip-share-{}.png", timestamp)
+    } else {
+        format!("cipherclip-{}.png", timestamp)
+    };
+    
+    let dest_dir = if destination_type == "share" {
+        app_handle.path().document_dir().unwrap_or_else(|_| std::path::PathBuf::from("/storage/emulated/0/Documents"))
+    } else {
+        app_handle.path().download_dir().unwrap_or_else(|_| std::path::PathBuf::from("/storage/emulated/0/Download"))
+    };
+    
+    let dest_path = dest_dir.join(&filename);
+    std::fs::copy(&src_path, &dest_path).map_err(|e| format!("Failed to copy file: {}", e))?;
+    
+    Ok(dest_path.to_string_lossy().to_string())
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn copy_attachment(app_handle: tauri::AppHandle, path: String, content_type: String) -> Result<(), String> {
@@ -756,6 +786,7 @@ pub fn run() {
             toggle_clip_lock,
             open_image_preview,
             copy_attachment,
+            export_attachment,
             get_connected_peers,
             disconnect_peer,
             clear_blocks,

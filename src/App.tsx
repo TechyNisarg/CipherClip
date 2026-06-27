@@ -139,7 +139,7 @@ function App() {
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const [settingsTab, setSettingsTab] = useState<'general' | 'sync' | 'data' | 'about'>('general');
   const [toast, setToast] = useState<string | null>(null);
-  const [previewImageSrc, setPreviewImageSrc] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ src: string, uuid: string | null } | null>(null);
 
   useEffect(() => {
     if (settingsTab === 'sync' || showNetworkSync) {
@@ -768,14 +768,14 @@ function App() {
               if (uuid) {
                 const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
                 const mime = getMimeType(fullBase64);
-                setPreviewImageSrc(`data:${mime};base64,${fullBase64}`);
+                setPreviewImage({ src: `data:${mime};base64,${fullBase64}`, uuid });
               } else {
                 const mime = getMimeType(clipToTarget.content);
-                setPreviewImageSrc(`data:${mime};base64,${clipToTarget.content}`);
+                setPreviewImage({ src: `data:${mime};base64,${clipToTarget.content}`, uuid: null });
               }
             } catch(e) {
               const mime = getMimeType(clipToTarget.content);
-              setPreviewImageSrc(`data:${mime};base64,${clipToTarget.content}`);
+              setPreviewImage({ src: `data:${mime};base64,${clipToTarget.content}`, uuid: null });
             }
           }
         }
@@ -1037,9 +1037,9 @@ function App() {
                           if (id !== undefined) setPendingLockId(id);
                           setTimeout(() => setShowPasswordSetup(true), 100);
                         }}
-                        onPreviewImage={async (base64) => {
+                        onPreviewImage={async (base64, uuid) => {
                           const mime = getMimeType(base64);
-                          setPreviewImageSrc(`data:${mime};base64,${base64}`);
+                          setPreviewImage({ src: `data:${mime};base64,${base64}`, uuid: uuid || null });
                         }}
                         downloadingClips={downloadingClips}
                       />
@@ -1054,13 +1054,13 @@ function App() {
 
       {/* Image Preview Modal */}
       <AnimatePresence>
-        {previewImageSrc && (
+        {previewImage && (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4"
-            onClick={() => setPreviewImageSrc(null)}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4"
+            onClick={() => setPreviewImage(null)}
           >
             <div className="absolute top-12 md:top-6 right-4 md:right-6 flex gap-3 z-10">
               {isMobile && (
@@ -1070,19 +1070,22 @@ function App() {
                       e.stopPropagation();
                       try {
                         const { downloadDir, join } = await import('@tauri-apps/api/path');
-                        const b64Data = previewImageSrc.split(',')[1];
-                        const binaryString = atob(b64Data);
-                        const bytes = new Uint8Array(binaryString.length);
-                        for (let i = 0; i < binaryString.length; i++) {
-                          bytes[i] = binaryString.charCodeAt(i);
+                        let fullPath = "";
+                        if (previewImage.uuid) {
+                          fullPath = await invoke<string>("export_attachment", { uuid: previewImage.uuid, destinationType: "download" });
+                        } else {
+                          const b64Data = previewImage.src.split(',')[1];
+                          const binaryString = atob(b64Data);
+                          const bytes = new Uint8Array(binaryString.length);
+                          for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                          }
+                          const filename = `cipherclip-${Date.now()}.png`;
+                          await writeFile(filename, bytes, { baseDir: BaseDirectory.Download });
+                          const dDir = await downloadDir();
+                          fullPath = await join(dDir, filename);
                         }
-                        const filename = `cipherclip-${Date.now()}.png`;
-                        await writeFile(filename, bytes, { baseDir: BaseDirectory.Download });
-                        
-                        const dDir = await downloadDir();
-                        const fullPath = await join(dDir, filename);
                         await invoke("scan_media_file", { path: fullPath });
-                        
                         showToast("Image saved to Downloads folder");
                       } catch(err) {
                         setAlertModal({ message: "Failed to download image: " + err, isError: true });
@@ -1098,18 +1101,21 @@ function App() {
                       try {
                         const { shareFile } = await import('tauri-plugin-share');
                         const { documentDir, join } = await import('@tauri-apps/api/path');
-                        const b64Data = previewImageSrc.split(',')[1];
-                        const binaryString = atob(b64Data);
-                        const bytes = new Uint8Array(binaryString.length);
-                        for (let i = 0; i < binaryString.length; i++) {
-                          bytes[i] = binaryString.charCodeAt(i);
+                        let fullPath = "";
+                        if (previewImage.uuid) {
+                          fullPath = await invoke<string>("export_attachment", { uuid: previewImage.uuid, destinationType: "share" });
+                        } else {
+                          const b64Data = previewImage.src.split(',')[1];
+                          const binaryString = atob(b64Data);
+                          const bytes = new Uint8Array(binaryString.length);
+                          for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                          }
+                          const filename = `cipherclip-share-${Date.now()}.png`;
+                          await writeFile(filename, bytes, { baseDir: BaseDirectory.Document });
+                          const docPath = await documentDir();
+                          fullPath = await join(docPath, filename);
                         }
-                        const filename = `cipherclip-share-${Date.now()}.png`;
-                        
-                        await writeFile(filename, bytes, { baseDir: BaseDirectory.Document });
-                        const docPath = await documentDir();
-                        const fullPath = await join(docPath, filename);
-                        
                         await invoke("scan_media_file", { path: fullPath });
                         await shareFile(fullPath, "image/png");
                       } catch (err) {
@@ -1123,7 +1129,7 @@ function App() {
                 </>
               )}
               <button 
-                onClick={() => setPreviewImageSrc(null)} 
+                onClick={() => setPreviewImage(null)} 
                 className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
               >
                 <X className="w-6 h-6" />
@@ -1133,7 +1139,7 @@ function App() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              src={previewImageSrc} 
+              src={previewImage.src} 
               alt="Preview" 
               style={{ WebkitTouchCallout: 'default', userSelect: 'auto', WebkitUserSelect: 'auto' }}
               className="max-w-full max-h-full object-contain rounded-lg shadow-2xl select-auto pointer-events-auto"
@@ -2281,7 +2287,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
   requestUnlock: (id: number, action: 'copy' | 'unlock' | 'delete' | 'preview', autoPaste?: boolean) => void,
   toggleLock: (id: number, locked: boolean) => void,
   requestSetup: (id?: number) => void,
-  onPreviewImage: (base64: string) => Promise<void>,
+  onPreviewImage: (base64: string, uuid?: string) => Promise<void>,
   downloadingClips: Set<string>
 }) {
 
@@ -2295,7 +2301,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
         const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
-        await onPreviewImage(fullBase64);
+        await onPreviewImage(fullBase64, uuid);
       } else {
         await onPreviewImage(clip.content);
       }
