@@ -544,15 +544,21 @@ fn scan_media_file(path: String) {
             println!("ndk_context is not initialized, skipping media scan");
             return;
         }
-        let vm = unsafe { jni::JavaVM::from_raw(vm_ptr.cast()) }.unwrap();
-        let mut env = vm.attach_current_thread().unwrap();
+        let vm = match unsafe { jni::JavaVM::from_raw(vm_ptr.cast()) } {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let mut env = match vm.attach_current_thread() {
+            Ok(e) => e,
+            Err(_) => return,
+        };
         let activity = unsafe { jni::objects::JObject::from_raw(context_ptr.cast()) };
 
         if let Ok(path_jstring) = env.new_string(&path) {
             if let Ok(mime_jstring) = env.new_string("image/png") {
                 if let Ok(path_array) = env.new_object_array(1, "java/lang/String", &path_jstring) {
                     if let Ok(mime_array) = env.new_object_array(1, "java/lang/String", &mime_jstring) {
-                        let _ = env.call_static_method(
+                        let res = env.call_static_method(
                             "android/media/MediaScannerConnection",
                             "scanFile",
                             "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
@@ -563,6 +569,12 @@ fn scan_media_file(path: String) {
                                 (&jni::objects::JObject::null()).into(),
                             ],
                         );
+                        if let Err(e) = res {
+                            println!("MediaScannerConnection failed: {:?}", e);
+                            if env.exception_check().unwrap_or(false) {
+                                let _ = env.exception_clear();
+                            }
+                        }
                     }
                 }
             }

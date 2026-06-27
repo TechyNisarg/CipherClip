@@ -222,18 +222,23 @@ impl Database {
 
     pub fn toggle_pin(&self, id: i64, pinned: bool) -> SqlResult<()> {
 
+        let (uuid, has_attachment, attachment_path): (String, bool, Option<String>) = self.conn.query_row(
+            "SELECT uuid, has_attachment, attachment_path FROM clipboard_history WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        )?;
+
         self.conn.execute(
             "UPDATE clipboard_history SET pinned = ?1 WHERE id = ?2",
-            (pinned, id),
+            rusqlite::params![pinned, id],
         )?;
-        if let Some(uuid) = self.get_uuid_by_id(id)? {
+        
         let vector_clock = self.get_next_hlc();
         let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
         self.conn.execute(
             "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params!["UPDATE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
+            rusqlite::params!["UPDATE", &uuid, &self.device_id, vector_clock, timestamp, has_attachment, attachment_path],
         )?;
-        }
         Ok(())
     }
 
