@@ -538,9 +538,15 @@ fn scan_media_file(path: String) {
     #[cfg(target_os = "android")]
     {
         let ctx = ndk_context::android_context();
-        let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.unwrap();
+        let vm_ptr = ctx.vm();
+        let context_ptr = ctx.context();
+        if vm_ptr.is_null() || context_ptr.is_null() {
+            println!("ndk_context is not initialized, skipping media scan");
+            return;
+        }
+        let vm = unsafe { jni::JavaVM::from_raw(vm_ptr.cast()) }.unwrap();
         let mut env = vm.attach_current_thread().unwrap();
-        let activity = unsafe { jni::objects::JObject::from_raw(ctx.context().cast()) };
+        let activity = unsafe { jni::objects::JObject::from_raw(context_ptr.cast()) };
 
         if let Ok(path_jstring) = env.new_string(&path) {
             if let Ok(mime_jstring) = env.new_string("image/png") {
