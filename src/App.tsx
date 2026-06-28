@@ -438,8 +438,8 @@ function App() {
     });
 
     const unlistenDownload = listen("download_progress", (event: any) => {
-      const payload = event.payload as { uuid: string, percentage: number };
-      if (payload.percentage < 100) {
+      const payload = event.payload as { uuid: string, progress: number };
+      if (payload.progress < 100) {
         setDownloadingClips(prev => {
           const next = new Set(prev);
           next.add(payload.uuid);

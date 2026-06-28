@@ -609,6 +609,19 @@ impl NetworkManager {
                                                               Ok(_) => println!("Successfully applied SYNC_REQ pushed events"),
                                                               Err(e) => println!("Error applying SYNC_REQ pushed events: {:?}", e),
                                                           }
+                                                            // Tell UI the attachment is downloading BEFORE emitting clipboard-update
+                                                            for e in &events_clone {
+                                                                if e.has_attachment.unwrap_or(false) {
+                                                                    let raw_path = e.attachment_path.clone().unwrap_or_default();
+                                                                    let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
+                                                                    let uuid = if extracted.is_empty() { e.clip_uuid.clone() } else { extracted };
+                                                                    let _ = ui_callback_c("download_progress", serde_json::json!({
+                                                                        "uuid": uuid,
+                                                                        "progress": 0,
+                                                                        "downloaded": 0
+                                                                    }));
+                                                                }
+                                                            }
                                                             let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
                                                         }
                                                         for e in events_clone {
@@ -684,6 +697,19 @@ impl NetworkManager {
                                                       match db_lock.apply_sync_events(events) {
                                                           Ok(_) => println!("Successfully applied SYNC_RES events"),
                                                           Err(e) => println!("Error applying SYNC_RES events: {:?}", e),
+                                                      }
+                                                      // Tell UI the attachment is downloading BEFORE emitting clipboard-update
+                                                      for e in &events_clone {
+                                                          if e.has_attachment.unwrap_or(false) {
+                                                              let raw_path = e.attachment_path.clone().unwrap_or_default();
+                                                              let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
+                                                              let uuid = if extracted.is_empty() { e.clip_uuid.clone() } else { extracted };
+                                                              let _ = ui_callback_c("download_progress", serde_json::json!({
+                                                                  "uuid": uuid,
+                                                                  "progress": 0,
+                                                                  "downloaded": 0
+                                                              }));
+                                                          }
                                                       }
                                                     let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
                                                 }
