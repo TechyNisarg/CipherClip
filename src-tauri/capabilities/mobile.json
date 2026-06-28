@@ -19,7 +19,7 @@
     },
     {
       "identifier": "fs:allow-read-file",
-      "allow": [{ "path": "$DOWNLOAD/**" }, { "path": "$DOCUMENT/**" }]
+      "allow": [{ "path": "$DOWNLOAD/**" }, { "path": "$DOCUMENT/**" }, { "path": "$APPDATA/**" }]
     }
   ]
 }
