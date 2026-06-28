@@ -9,7 +9,7 @@ import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizo
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
-import { writeFile, BaseDirectory, readFile } from '@tauri-apps/plugin-fs';
+import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { Image as TauriImage } from '@tauri-apps/api/image';
 import { type as osType } from '@tauri-apps/plugin-os';
 
@@ -50,34 +50,40 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
-        invoke<string>("get_attachment_path_str", { uuid })
-          .then(async path => {
-            if (isMounted.current) {
-              if (isMobile) {
-                try {
-                  const bytes = await readFile(path);
-                  const blob = new Blob([bytes], { type: 'image/png' });
-                  setSrc(URL.createObjectURL(blob));
-                } catch(e) {
-                  console.error("Failed to read file on mobile", e);
-                  setSrc(convertFileSrc(path));
-                }
+        if (isMobile) {
+          invoke<Uint8Array>("get_attachment_bytes", { uuid })
+            .then(bytes => {
+              if (isMounted.current) {
+                const blob = new Blob([new Uint8Array(bytes)], { type: clip.content_type === 'image' ? 'image/png' : 'application/octet-stream' });
+                setSrc(URL.createObjectURL(blob));
+              }
+            })
+            .catch(e => {
+              console.error("Failed to load attachment bytes:", e);
+              if (clip.content) {
+                setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
               } else {
+                setHasError(true);
+              }
+            });
+        } else {
+          invoke<string>("get_attachment_path_str", { uuid })
+            .then(path => {
+              if (isMounted.current) {
                 setSrc(convertFileSrc(path));
               }
-            }
-          })
-          .catch(e => {
-            console.error("Failed to load attachment image:", e);
-            // Fallback to the inline thumbnail if available.
-            if (clip.content) {
-              setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
-            } else if (clip.attachment_path) {
-              setSrc(convertFileSrc(clip.attachment_path));
-            } else {
-              setHasError(true);
-            }
-          });
+            })
+            .catch(e => {
+              console.error("Failed to load attachment image:", e);
+              if (clip.content) {
+                setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
+              } else if (clip.attachment_path) {
+                setSrc(convertFileSrc(clip.attachment_path));
+              } else {
+                setHasError(true);
+              }
+            });
+        }
       }
     } else if (clip.content) {
       setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
@@ -2290,15 +2296,9 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
-        if (isMobile) {
-          const path = await invoke<string>("get_attachment_path_str", { uuid });
-          const bytes = await readFile(path);
-          const blob = new Blob([bytes], { type: 'image/png' });
-          await onPreviewImage(URL.createObjectURL(blob), uuid);
-        } else {
-          const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
-          await onPreviewImage(fullBase64, uuid);
-        }
+        const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid });
+        const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
+        await onPreviewImage(URL.createObjectURL(blob), uuid);
       } else {
         await onPreviewImage(clip.content);
       }
