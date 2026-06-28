@@ -51,21 +51,11 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
         if (isMobile) {
-          invoke<Uint8Array>("get_attachment_bytes", { uuid })
-            .then(bytes => {
-              if (isMounted.current) {
-                const blob = new Blob([new Uint8Array(bytes)], { type: clip.content_type === 'image' ? 'image/png' : 'application/octet-stream' });
-                setSrc(URL.createObjectURL(blob));
-              }
-            })
-            .catch(e => {
-              console.error("Failed to load attachment bytes:", e);
-              if (clip.content) {
-                setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
-              } else {
-                setHasError(true);
-              }
-            });
+          if (clip.content) {
+            setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
+          } else {
+            setHasError(true);
+          }
         } else {
           invoke<string>("get_attachment_path_str", { uuid })
             .then(path => {
