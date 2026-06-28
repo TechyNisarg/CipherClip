@@ -500,7 +500,7 @@ async fn get_attachment_path_str(app_handle: tauri::AppHandle, uuid: String) -> 
 }
 
 #[tauri::command]
-async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<Vec<u8>, String> {
+async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<tauri::ipc::Response, String> {
     use tauri::Manager;
     let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
@@ -513,7 +513,7 @@ async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Res
         std::fs::read(&legacy).map_err(|e| format!("File not found: {} and {}", path.display(), legacy.display()))?
     };
     
-    Ok(bytes)
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
