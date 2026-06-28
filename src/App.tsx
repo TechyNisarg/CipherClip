@@ -9,7 +9,7 @@ import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizo
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
-import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { writeFile, BaseDirectory, readFile } from '@tauri-apps/plugin-fs';
 import { Image as TauriImage } from '@tauri-apps/api/image';
 import { type as osType } from '@tauri-apps/plugin-os';
 
@@ -45,30 +45,31 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
     isMounted.current = true;
     setHasError(false);
 
-    // On Mobile, large high-res images can fail to render fully or hit WebView asset constraints.
-    // The compressed base64 thumbnail is perfectly sized for the small inline feed.
-    // The full high-res image is loaded reliably via base64 bytes on double-click preview.
-    if (isMobile) {
-      if (clip.content) {
-        setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
-      }
-      return;
-    }
-
+    setHasError(false);
     if (clip.has_attachment && !isDownloading) {
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
         invoke<string>("get_attachment_path_str", { uuid })
-          .then(path => {
+          .then(async path => {
             if (isMounted.current) {
-              setSrc(convertFileSrc(path));
+              if (isMobile) {
+                try {
+                  const bytes = await readFile(path);
+                  const blob = new Blob([bytes], { type: 'image/png' });
+                  setSrc(URL.createObjectURL(blob));
+                } catch(e) {
+                  console.error("Failed to read file on mobile", e);
+                  setSrc(convertFileSrc(path));
+                }
+              } else {
+                setSrc(convertFileSrc(path));
+              }
             }
           })
           .catch(e => {
             console.error("Failed to load attachment image:", e);
-            // If get_attachment_path_str fails (meaning it's not local and we couldn't download it),
-            // fallback to the inline thumbnail if available.
+            // Fallback to the inline thumbnail if available.
             if (clip.content) {
               setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
             } else if (clip.attachment_path) {
@@ -1051,9 +1052,13 @@ function App() {
                           if (id !== undefined) setPendingLockId(id);
                           setTimeout(() => setShowPasswordSetup(true), 100);
                         }}
-                        onPreviewImage={async (base64, uuid) => {
-                          const mime = getMimeType(base64);
-                          setPreviewImage({ src: `data:${mime};base64,${base64}`, uuid: uuid || null });
+                        onPreviewImage={async (src, uuid) => {
+                          if (src.startsWith('blob:') || src.startsWith('data:')) {
+                            setPreviewImage({ src, uuid: uuid || null });
+                          } else {
+                            const mime = getMimeType(src);
+                            setPreviewImage({ src: `data:${mime};base64,${src}`, uuid: uuid || null });
+                          }
                         }}
                         downloadingClips={downloadingClips}
                       />
@@ -2285,8 +2290,15 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
-        const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
-        await onPreviewImage(fullBase64, uuid);
+        if (isMobile) {
+          const path = await invoke<string>("get_attachment_path_str", { uuid });
+          const bytes = await readFile(path);
+          const blob = new Blob([bytes], { type: 'image/png' });
+          await onPreviewImage(URL.createObjectURL(blob), uuid);
+        } else {
+          const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
+          await onPreviewImage(fullBase64, uuid);
+        }
       } else {
         await onPreviewImage(clip.content);
       }
