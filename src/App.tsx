@@ -28,12 +28,43 @@ interface ClipItem {
 }
 
 const getMimeType = (b64: string) => {
-  if (!b64) return 'image/jpeg';
   if (b64.startsWith('/9j/')) return 'image/jpeg';
-  if (b64.startsWith('iVBOR')) return 'image/png';
+  if (b64.startsWith('iVBORw0KGgo')) return 'image/png';
+  if (b64.startsWith('R0lGOD')) return 'image/gif';
   if (b64.startsWith('UklGR')) return 'image/webp';
-  return 'image/jpeg'; // fallback
+  return 'image/png'; // Default to png
 };
+
+// Global queue to strictly sequentially load high-res images on mobile.
+// Android's IPC bridge drops streams/truncates payloads if flooded with concurrent heavy requests.
+class AsyncQueue {
+  private queue: (() => Promise<void>)[] = [];
+  private processing = false;
+
+  async enqueue<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          resolve(await task());
+        } catch (e) {
+          reject(e);
+        }
+      });
+      this.process();
+    });
+  }
+
+  private async process() {
+    if (this.processing || this.queue.length === 0) return;
+    this.processing = true;
+    while (this.queue.length > 0) {
+      const task = this.queue.shift();
+      if (task) await task();
+    }
+    this.processing = false;
+  }
+}
+const imageQueue = new AsyncQueue();
 
 const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, className: string, isDownloading?: boolean }) => {
   // Use the inline thumbnail preview initially if available, fallback to full webp/jpeg based on content
@@ -51,14 +82,23 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
         if (isMobile) {
-          // PERF: Never load the 4K uncompressed attachment inline on Mobile.
-          // This prevents IPC queue flooding (which causes the 5% truncation bug) 
-          // and eliminates the 15-20 second lag on app startup.
-          if (clip.content) {
-            setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
-          } else {
-            setHasError(true);
-          }
+          // As requested: Load high-res images directly in the inline feed!
+          // We use the global queue to fetch them one-by-one so the Android IPC bridge never truncates the data.
+          imageQueue.enqueue(() => invoke<Uint8Array>("get_attachment_bytes", { uuid }))
+            .then(bytes => {
+              if (isMounted.current) {
+                const blob = new Blob([new Uint8Array(bytes)], { type: clip.content_type === 'image' ? 'image/png' : 'application/octet-stream' });
+                setSrc(URL.createObjectURL(blob));
+              }
+            })
+            .catch(e => {
+              console.error("Failed to load attachment bytes:", e);
+              if (clip.content) {
+                setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
+              } else {
+                setHasError(true);
+              }
+            });
         } else {
           invoke<string>("get_attachment_path_str", { uuid })
             .then(async path => {
@@ -2289,11 +2329,9 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
       const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
       if (uuid) {
-        // As requested by user: Switch back to the JSON IPC for the full screen preview
-        // Because this is only called on double-tap (one at a time), it will not flood the IPC
-        // and therefore will not be truncated (fixing the 5% / 45% partial crop bug).
         try {
-          const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid });
+          // Use the queue for full screen preview as well to prevent overlapping with inline loads
+          const bytes = await imageQueue.enqueue(() => invoke<Uint8Array>("get_attachment_bytes", { uuid }));
           const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
           await onPreviewImage(URL.createObjectURL(blob), uuid);
         } catch(e) {
