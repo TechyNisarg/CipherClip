@@ -500,11 +500,21 @@ async fn get_attachment_path_str(app_handle: tauri::AppHandle, uuid: String) -> 
 }
 
 #[tauri::command]
-async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Result<tauri::ipc::Response, String> {
+async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String, max_width: Option<u32>) -> Result<tauri::ipc::Response, String> {
     use tauri::Manager;
     let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
     
+    // If a max_width is requested (e.g. mobile), check for a cached resized version first
+    if let Some(width) = max_width {
+        let mobile_path = storage.attachments_dir.join(format!("{}-w{}.jpg", uuid, width));
+        if mobile_path.exists() {
+            if let Ok(cached_bytes) = std::fs::read(&mobile_path) {
+                return Ok(tauri::ipc::Response::new(cached_bytes));
+            }
+        }
+    }
+
     let path = storage.get_attachment_path(&uuid);
     let bytes = if path.exists() {
         std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?
@@ -513,6 +523,23 @@ async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String) -> Res
         std::fs::read(&legacy).map_err(|e| format!("File not found: {} and {}", path.display(), legacy.display()))?
     };
     
+    // Generate the cached resized version if requested
+    if let Some(width) = max_width {
+        let mobile_path = storage.attachments_dir.join(format!("{}-w{}.jpg", uuid, width));
+        if let Ok(img) = image::load_from_memory(&bytes) {
+            if img.width() > width {
+                // Triangle is fast and perfectly acceptable for downscaling
+                let resized = img.resize(width, width * 10, image::imageops::FilterType::Triangle);
+                let mut cursor = std::io::Cursor::new(Vec::new());
+                if resized.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+                    let result_bytes = cursor.into_inner();
+                    let _ = std::fs::write(&mobile_path, &result_bytes); // Cache it!
+                    return Ok(tauri::ipc::Response::new(result_bytes));
+                }
+            }
+        }
+    }
+
     Ok(tauri::ipc::Response::new(bytes))
 }
 
