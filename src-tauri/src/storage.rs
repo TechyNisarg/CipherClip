@@ -26,6 +26,10 @@ impl StorageManager {
         self.attachments_dir.join(format!("{}.bin", uuid))
     }
 
+    pub fn get_encrypted_attachment_path(&self, uuid: &str) -> PathBuf {
+        self.attachments_dir.join(format!("{}.enc", uuid))
+    }
+
     pub fn save_chunk(&self, uuid: &str, chunk: &[u8], append: bool) -> Result<(), String> {
         let path = self.get_attachment_path(uuid);
         let mut file = fs::OpenOptions::new()

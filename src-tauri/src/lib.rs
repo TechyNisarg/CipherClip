@@ -425,6 +425,42 @@ async fn add_mobile_clip(state: State<'_, AppState>, text: String) -> Result<boo
 }
 
 #[tauri::command]
+async fn add_mobile_image(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, bytes: Vec<u8>) -> Result<bool, String> {
+    use sha2::{Digest, Sha256};
+    
+    // Encrypt the image bytes
+    let encrypted_bytes = state.crypto.encrypt(&bytes).map_err(|e| e.to_string())?;
+    
+    // Generate UUID
+    let uuid = uuid::Uuid::new_v4().to_string();
+    
+    // Save to attachments/<uuid>.enc
+    use tauri::Manager;
+    let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
+    let enc_path = storage.get_encrypted_attachment_path(&uuid);
+    std::fs::write(&enc_path, &encrypted_bytes).map_err(|e| e.to_string())?;
+    
+    // Create base64 thumbnail
+    let mut thumbnail = vec![];
+    if let Ok(img) = image::load_from_memory(&bytes) {
+        let resized = img.resize(100, 100 * 10, image::imageops::FilterType::Triangle);
+        let mut cursor = std::io::Cursor::new(&mut thumbnail);
+        let _ = resized.write_to(&mut cursor, image::ImageFormat::Jpeg);
+    }
+    let encrypted_thumbnail = state.crypto.encrypt(&thumbnail).unwrap_or_default();
+    
+    let limit = state.settings.get().history_limit;
+    let db_guard = state.db.lock().unwrap();
+    db_guard.insert_clip("image", &encrypted_thumbnail, limit, true, Some(uuid)).map_err(|e| e.to_string())?;
+    drop(db_guard);
+    
+    state.network.trigger_sync(state.db.clone());
+    
+    Ok(true)
+}
+
+#[tauri::command]
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn paste_to_active_window(state: State<'_, AppState>) {
     state.ignore_next_update.store(true, Ordering::SeqCst);
@@ -500,7 +536,7 @@ async fn get_attachment_path_str(app_handle: tauri::AppHandle, uuid: String) -> 
 }
 
 #[tauri::command]
-async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String, max_width: Option<u32>) -> Result<tauri::ipc::Response, String> {
+async fn get_attachment_bytes(app_handle: tauri::AppHandle, state: tauri::State<'_, AppState>, uuid: String, max_width: Option<u32>) -> Result<tauri::ipc::Response, String> {
     use tauri::Manager;
     let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
@@ -515,11 +551,16 @@ async fn get_attachment_bytes(app_handle: tauri::AppHandle, uuid: String, max_wi
         }
     }
 
+    let enc_path = storage.get_encrypted_attachment_path(&uuid);
     let path = storage.get_attachment_path(&uuid);
-    let bytes = if path.exists() {
+    let legacy = storage.get_legacy_attachment_path(&uuid);
+    
+    let bytes = if enc_path.exists() {
+        let encrypted_bytes = std::fs::read(&enc_path).map_err(|e| format!("Failed to read {}: {}", enc_path.display(), e))?;
+        state.crypto.decrypt(&encrypted_bytes).map_err(|e| e.to_string())?
+    } else if path.exists() {
         std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?
     } else {
-        let legacy = storage.get_legacy_attachment_path(&uuid);
         std::fs::read(&legacy).map_err(|e| format!("File not found: {} and {}", path.display(), legacy.display()))?
     };
     
@@ -759,6 +800,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_history,
             add_mobile_clip,
+            add_mobile_image,
             get_attachment_bytes,
             get_attachment_path_str,
             toggle_pin,

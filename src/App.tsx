@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2 } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2, FileText, Image as ImageIcon } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
@@ -46,7 +46,7 @@ class AsyncQueue {
       this.queue.push(async () => {
         try {
           resolve(await task());
-        } catch (e) {
+        } catch {
           reject(e);
         }
       });
@@ -79,7 +79,7 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
     setHasError(false);
     if (clip.has_attachment && !isDownloading) {
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
-      const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
+      const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
       if (uuid) {
         if (isMobile) {
           // As requested: Load high-res images directly in the inline feed!
@@ -185,6 +185,7 @@ function App() {
   const [limitSaved, setLimitSaved] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [autoStart, setAutoStart] = useState(false);
+  const [autoSyncMobile, setAutoSyncMobile] = useState(false);
   const [theme, setTheme] = useState("system");
   const [hasMasterPassword, setHasMasterPassword] = useState(false);
   const [showPasswordSetup, setShowPasswordSetup] = useState(false);
@@ -196,6 +197,10 @@ function App() {
   const [settingsTab, setSettingsTab] = useState<'general' | 'sync' | 'data' | 'about'>('general');
   const [toast, setToast] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ src: string, uuid: string | null } | null>(null);
+  const [showFabMenu, setShowFabMenu] = useState(false);
+  const [showAddTextModal, setShowAddTextModal] = useState(false);
+  const [addTextInput, setAddTextInput] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (settingsTab === 'sync' || showNetworkSync) {
@@ -242,16 +247,19 @@ function App() {
       if (s && s.theme) {
         setTheme(s.theme);
       }
+      if (s && s.auto_sync_mobile !== undefined) {
+        setAutoSyncMobile(s.auto_sync_mobile);
+      }
       try {
         const hasPwd = await invoke("has_master_password");
         setHasMasterPassword(hasPwd as boolean);
-      } catch (e) {
+      } catch {
         console.warn("Failed to fetch master password status:", e);
       }
       try {
         const isAutoStartEnabled = await isEnabled();
         setAutoStart(isAutoStartEnabled);
-      } catch (e) {
+      } catch {
         console.warn("Autostart plugin error:", e);
       }
     } catch (error) {
@@ -274,24 +282,73 @@ function App() {
     }
   };
 
+  const toggleAutoSyncMobile = async () => {
+    try {
+      const newValue = !autoSyncMobile;
+      setAutoSyncMobile(newValue);
+      await invoke("update_settings", { settings: { auto_sync_mobile: newValue } });
+    } catch (err) {
+      console.error("Failed to toggle mobile auto-sync:", err);
+    }
+  };
+
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      const buffer = await file.arrayBuffer();
+      const bytes = Array.from(new Uint8Array(buffer));
+      const added = await invoke("add_mobile_image", { bytes });
+      if (added) {
+        fetchHistory();
+        showToast("Image added successfully!");
+      }
+    } catch (err) {
+      console.error("Failed to add mobile image:", err);
+      showToast("Failed to add image");
+    }
+    setShowFabMenu(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleAddMobileText = async () => {
+    if (!addTextInput.trim()) return;
+    try {
+      const added = await invoke("add_mobile_clip", { text: addTextInput });
+      if (added) {
+        fetchHistory();
+        showToast("Text added successfully!");
+      }
+      setShowAddTextModal(false);
+      setAddTextInput("");
+    } catch (err) {
+      console.error("Failed to add mobile text:", err);
+      showToast("Failed to add text");
+    }
+  };
+
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     try {
       const t = osType();
       setIsMobile(t === 'android' || t === 'ios');
-    } catch (e) {
+    } catch {
       // ignore
     }
   }, []);
 
+  const lastReadTextRef = useRef<string>("");
+
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isMobile || !autoSyncMobile) return;
 
     const checkClipboard = async () => {
       try {
         const text = await readText();
-        if (text && text.trim().length > 0) {
+        if (text && text.trim().length > 0 && text !== lastReadTextRef.current) {
+          lastReadTextRef.current = text;
           const added = await invoke("add_mobile_clip", { text });
           if (added) {
             fetchHistory();
@@ -320,8 +377,8 @@ function App() {
     return () => {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
-    }
-  }, [isMobile]);
+    };
+  }, [isMobile, autoSyncMobile, fetchHistory]);
 
   const [isScanning, setIsScanning] = useState(false);
   const [isScanningLoading, setIsScanningLoading] = useState(false);
@@ -514,7 +571,7 @@ function App() {
                   }
                 }
               }
-            } catch (e) {
+            } catch {
               console.error("Mobile clipboard sync error:", e);
             }
           }, 500);
@@ -540,7 +597,7 @@ function App() {
                 }
               }
             }
-          } catch (e) {
+          } catch {
             console.error("Mobile clipboard sync error:", e);
           }
         }, 500);
@@ -620,7 +677,7 @@ function App() {
               const arrayBuffer = await pngBlob.arrayBuffer();
               const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
               await writeImage(tauriImg);
-            } catch (e) {
+            } catch {
               console.error("Plugin writeImage failed, falling back to navigator", e);
               await navigator.clipboard.write([
                 new ClipboardItem({ 'image/png': pngBlob })
@@ -631,7 +688,7 @@ function App() {
       } else {
         try {
           await writeTextToClipboard(clip.content);
-        } catch (e) {
+        } catch {
           // Fallback for Windows if plugin fails
           await navigator.clipboard.writeText(clip.content);
         }
@@ -820,7 +877,7 @@ function App() {
           if (clipToTarget) {
             try {
               const rawUuid = clipToTarget.attachment_uuid || clipToTarget.attachment_path;
-              const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
+              const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
               if (uuid) {
                 const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
                 const mime = getMimeType(fullBase64);
@@ -903,6 +960,7 @@ function App() {
 
   useEffect(() => {
     if (!hasPinned && activeTab === 'pinned') {
+      // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
       setActiveTab('recent');
     }
   }, [hasPinned, activeTab]);
@@ -1820,6 +1878,21 @@ function App() {
                           </AnimatePresence>
                         </div>
 
+                        { isMobile && (
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="text-sm font-medium text-slate-700 dark:text-gray-300">Auto-Sync Text</label>
+                              <button
+                                onClick={toggleAutoSyncMobile}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoSyncMobile ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-gray-600'}`}
+                              >
+                                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoSyncMobile ? 'translate-x-4.5' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-gray-500">Automatically sync text from your mobile clipboard when you open CipherClip.</p>
+                          </div>
+                        )}
+
                         { !isMobile && (
                           <>
                             <div>
@@ -2276,6 +2349,127 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Hidden File Input for Image Upload */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleImageFileChange} 
+        accept="image/*" 
+        className="hidden" 
+      />
+
+      {/* Floating Action Button (Mobile Only) */}
+      {isMobile && (
+        <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3">
+          <AnimatePresence>
+            {showFabMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                className="flex flex-col gap-3"
+              >
+                <button
+                  onClick={() => {
+                    setShowFabMenu(false);
+                    setShowAddTextModal(true);
+                  }}
+                  className="flex items-center gap-3 bg-white dark:bg-gray-800 text-slate-700 dark:text-gray-200 px-4 py-2 rounded-full shadow-lg border border-slate-200 dark:border-gray-700 active:scale-95 transition-transform"
+                >
+                  <span className="text-sm font-medium">Add Text</span>
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-500 dark:text-indigo-400">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    if (fileInputRef.current) fileInputRef.current.click();
+                  }}
+                  className="flex items-center gap-3 bg-white dark:bg-gray-800 text-slate-700 dark:text-gray-200 px-4 py-2 rounded-full shadow-lg border border-slate-200 dark:border-gray-700 active:scale-95 transition-transform"
+                >
+                  <span className="text-sm font-medium">Upload Image</span>
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400">
+                    <ImageIcon className="w-4 h-4" />
+                  </div>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          
+          <button
+            onClick={() => setShowFabMenu(!showFabMenu)}
+            className={`w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white transition-all transform active:scale-95 ${
+              showFabMenu ? 'bg-slate-700 dark:bg-gray-700 rotate-45' : 'bg-indigo-500 hover:bg-indigo-600'
+            }`}
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        </div>
+      )}
+
+      {/* Add Text Modal */}
+      <AnimatePresence>
+        {showAddTextModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-sm bg-white dark:bg-gray-900 rounded-2xl shadow-xl overflow-hidden"
+            >
+              <div className="p-4 border-b border-slate-100 dark:border-gray-800 flex justify-between items-center">
+                <h3 className="font-semibold text-slate-800 dark:text-gray-200 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-indigo-500" />
+                  Add Text Clip
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowAddTextModal(false);
+                    setAddTextInput("");
+                  }}
+                  className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-4">
+                <textarea
+                  value={addTextInput}
+                  onChange={(e) => setAddTextInput(e.target.value)}
+                  placeholder="Paste or type text here..."
+                  className="w-full h-40 p-3 bg-slate-50 dark:bg-gray-800/50 border border-slate-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-sm resize-none custom-scrollbar"
+                  autoFocus
+                />
+              </div>
+              <div className="p-4 pt-0 flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowAddTextModal(false);
+                    setAddTextInput("");
+                  }}
+                  className="flex-1 py-2.5 px-4 bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-300 rounded-xl text-sm font-medium transition-colors hover:bg-slate-200 dark:hover:bg-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddMobileText}
+                  disabled={!addTextInput.trim()}
+                  className="flex-1 py-2.5 px-4 bg-indigo-500 text-white rounded-xl text-sm font-medium transition-colors hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Save Clip
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
@@ -2322,14 +2516,14 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
 }) {
 
   const isLocked = clip.is_locked;
-  const attachmentUuid = clip.attachment_path?.split(/[\/\\]/).pop()?.split('.')[0];
+  const attachmentUuid = clip.attachment_path?.split(/[/\\]/).pop()?.split('.')[0];
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const executePreview = async () => {
     setIsLoadingPreview(true);
     try {
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
-      const uuid = rawUuid?.split(/[\/\\]/).pop()?.split('.')[0];
+      const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
       if (uuid) {
         try {
           // Full resolution preview (no maxWidth parameter)
