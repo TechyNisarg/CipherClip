@@ -252,7 +252,7 @@ impl Database {
         if is_locked {
             if let Some(uuid) = self.get_uuid_by_id(id)? {
                 let vector_clock = self.get_next_hlc();
-                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
                 let _ = self.conn.execute(
                     "INSERT OR IGNORE INTO event_log \
                      (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) \

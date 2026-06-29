@@ -448,7 +448,9 @@ async fn add_mobile_image(state: tauri::State<'_, AppState>, app_handle: tauri::
         let mut cursor = std::io::Cursor::new(&mut thumbnail);
         let _ = resized.write_to(&mut cursor, image::ImageFormat::Jpeg);
     }
-    let encrypted_thumbnail = state.crypto.encrypt(&thumbnail).unwrap_or_default();
+    use base64::{Engine as _, engine::general_purpose};
+    let b64_thumbnail = general_purpose::STANDARD.encode(&thumbnail);
+    let encrypted_thumbnail = state.crypto.encrypt(b64_thumbnail.as_bytes()).unwrap_or_default();
     
     let limit = state.settings.get().history_limit;
     let db_guard = state.db.lock().unwrap();

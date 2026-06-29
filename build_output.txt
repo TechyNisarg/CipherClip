@@ -1,0 +1,9 @@
+
+> cipherclip@0.1.4 build
+> tsc -b && vite build
+
+src/App.tsx(10,45): error TS6133: 'readText' is declared but its value is never read.
+src/App.tsx(50,18): error TS2304: Cannot find name 'e'.
+src/App.tsx(253,65): error TS2304: Cannot find name 'e'.
+src/App.tsx(259,49): error TS2304: Cannot find name 'e'.
+src/App.tsx(596,84): error TS2304: Cannot find name 'e'.

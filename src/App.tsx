@@ -2199,7 +2199,7 @@ function App() {
                 <h2 className="text-lg font-semibold text-slate-800 dark:text-gray-100">Unlock Clip</h2>
               </div>
               <p className="text-sm text-slate-600 dark:text-gray-400 mb-4">
-                This clip contains sensitive information. Please enter your master password to unlock, copy, or delete it.
+                This clip contains sensitive information. Please enter your master password to unlock, copy, preview, or delete it.
               </p>
               <div className="relative mb-6">
                 <input
@@ -2261,52 +2261,78 @@ function App() {
 
       {/* Floating Action Button (Mobile Only) */}
       {isMobile && (
-        <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3">
+        <>
           <AnimatePresence>
             {showFabMenu && (
               <motion.div
-                initial={{ opacity: 0, y: 10, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                className="flex flex-col gap-3"
-              >
-                <button
-                  onClick={() => {
-                    setShowFabMenu(false);
-                    setShowAddTextModal(true);
-                  }}
-                  className="flex items-center gap-3 w-40 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 px-4 py-2 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
-                >
-                  <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-500 dark:text-indigo-400 shrink-0">
-                    <FileText className="w-4 h-4" />
-                  </div>
-                  <span className="text-sm font-medium">Add Text</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setShowFabMenu(false);
-                    if (fileInputRef.current) fileInputRef.current.click();
-                  }}
-                  className="flex items-center gap-3 w-40 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 px-4 py-2 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
-                >
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 shrink-0">
-                    <ImageIcon className="w-4 h-4" />
-                  </div>
-                  <span className="text-sm font-medium">Upload Image</span>
-                </button>
-              </motion.div>
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowFabMenu(false)}
+                className="fixed inset-0 z-30 bg-black/5 dark:bg-black/20"
+              />
             )}
           </AnimatePresence>
-          
-          <button
-            onClick={() => setShowFabMenu(!showFabMenu)}
-            className={`w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white transition-all transform active:scale-95 ${
-              showFabMenu ? 'bg-slate-700 dark:bg-gray-700 rotate-45' : 'bg-indigo-500 hover:bg-indigo-600'
-            }`}
-          >
-            <Plus className="w-6 h-6" />
-          </button>
-        </div>
+
+          <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3 pointer-events-none">
+            <AnimatePresence>
+              {showFabMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                  className="flex flex-col items-end gap-3 pointer-events-auto"
+                >
+                  <button
+                    onClick={() => {
+                      setShowFabMenu(false);
+                      setShowAddTextModal(true);
+                    }}
+                    className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-500 dark:text-indigo-400 shrink-0">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <span className="text-sm font-medium whitespace-nowrap">Add Text</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowFabMenu(false);
+                      if (fileInputRef.current) fileInputRef.current.click();
+                    }}
+                    className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 shrink-0">
+                      <ImageIcon className="w-4 h-4" />
+                    </div>
+                    <span className="text-sm font-medium whitespace-nowrap">Upload Image</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowFabMenu(false);
+                      fetchHistory();
+                    }}
+                    className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-sky-100 dark:bg-sky-500/20 flex items-center justify-center text-sky-500 dark:text-sky-400 shrink-0">
+                      <RefreshCcw className="w-4 h-4" />
+                    </div>
+                    <span className="text-sm font-medium whitespace-nowrap">Refresh History</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            
+            <button
+              onClick={() => setShowFabMenu(!showFabMenu)}
+              className={`w-14 h-14 pointer-events-auto rounded-full shadow-xl flex items-center justify-center text-white transition-all transform active:scale-95 ${
+                showFabMenu ? 'bg-slate-700 dark:bg-gray-700 rotate-45' : 'bg-indigo-500 hover:bg-indigo-600'
+              }`}
+            >
+              <Plus className="w-6 h-6" />
+            </button>
+          </div>
+        </>
       )}
 
       {/* Add Text Modal */}

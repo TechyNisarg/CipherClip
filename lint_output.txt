@@ -1,0 +1,4 @@
+
+> cipherclip@0.1.4 lint
+> eslint .
+
