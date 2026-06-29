@@ -2275,23 +2275,24 @@ function App() {
                     setShowFabMenu(false);
                     setShowAddTextModal(true);
                   }}
-                  className="flex items-center gap-3 bg-white dark:bg-gray-800 text-slate-700 dark:text-gray-200 px-4 py-2 rounded-full shadow-lg border border-slate-200 dark:border-gray-700 active:scale-95 transition-transform"
+                  className="flex items-center gap-3 w-40 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 px-4 py-2 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
                 >
-                  <span className="text-sm font-medium">Add Text</span>
-                  <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-500 dark:text-indigo-400">
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-500 dark:text-indigo-400 shrink-0">
                     <FileText className="w-4 h-4" />
                   </div>
+                  <span className="text-sm font-medium">Add Text</span>
                 </button>
                 <button
                   onClick={() => {
+                    setShowFabMenu(false);
                     if (fileInputRef.current) fileInputRef.current.click();
                   }}
-                  className="flex items-center gap-3 bg-white dark:bg-gray-800 text-slate-700 dark:text-gray-200 px-4 py-2 rounded-full shadow-lg border border-slate-200 dark:border-gray-700 active:scale-95 transition-transform"
+                  className="flex items-center gap-3 w-40 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 px-4 py-2 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
                 >
-                  <span className="text-sm font-medium">Upload Image</span>
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 shrink-0">
                     <ImageIcon className="w-4 h-4" />
                   </div>
+                  <span className="text-sm font-medium">Upload Image</span>
                 </button>
               </motion.div>
             )}

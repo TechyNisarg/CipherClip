@@ -196,14 +196,15 @@ impl Database {
             |row| row.get(0),
         )?;
 
-        if count > limit {
-            let to_delete = count - limit;
-            self.conn.execute(
-                "DELETE FROM clipboard_history WHERE id IN (
-                    SELECT id FROM clipboard_history WHERE pinned = 0 AND is_locked = 0 ORDER BY timestamp ASC LIMIT ?1
-                )",
-                (to_delete,),
-            )?;
+        let actual_limit = if limit <= 0 { 100 } else { limit };
+        if count > actual_limit {
+            let to_delete = count - actual_limit;
+            if to_delete > 0 {
+                self.conn.execute(
+                    "UPDATE clipboard_history SET is_deleted = 1, encrypted_payload = NULL WHERE id IN (SELECT id FROM clipboard_history WHERE pinned = 0 AND is_locked = 0 ORDER BY timestamp ASC LIMIT ?1)",
+                    rusqlite::params![to_delete],
+                )?;
+            }
         }
 
         let seven_days_ago = timestamp - (7 * 24 * 60 * 60);
