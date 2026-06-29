@@ -185,7 +185,6 @@ function App() {
   const [limitSaved, setLimitSaved] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [autoStart, setAutoStart] = useState(false);
-  const [autoSyncMobile, setAutoSyncMobile] = useState(false);
   const [theme, setTheme] = useState("system");
   const [hasMasterPassword, setHasMasterPassword] = useState(false);
   const [showPasswordSetup, setShowPasswordSetup] = useState(false);
@@ -247,9 +246,6 @@ function App() {
       if (s && s.theme) {
         setTheme(s.theme);
       }
-      if (s && s.auto_sync_mobile !== undefined) {
-        setAutoSyncMobile(s.auto_sync_mobile);
-      }
       try {
         const hasPwd = await invoke("has_master_password");
         setHasMasterPassword(hasPwd as boolean);
@@ -279,16 +275,6 @@ function App() {
     } catch (err) {
       console.error("Failed to toggle autostart:", err);
       setAlertModal({ message: "Failed to toggle auto-start. Make sure your OS allows background apps.", isError: true });
-    }
-  };
-
-  const toggleAutoSyncMobile = async () => {
-    try {
-      const newValue = !autoSyncMobile;
-      setAutoSyncMobile(newValue);
-      await invoke("update_settings", { settings: { auto_sync_mobile: newValue } });
-    } catch (err) {
-      console.error("Failed to toggle mobile auto-sync:", err);
     }
   };
 
@@ -339,46 +325,6 @@ function App() {
     }
   }, []);
 
-  const lastReadTextRef = useRef<string>("");
-
-  useEffect(() => {
-    if (!isMobile || !autoSyncMobile) return;
-
-    const checkClipboard = async () => {
-      try {
-        const text = await readText();
-        if (text && text.trim().length > 0 && text !== lastReadTextRef.current) {
-          lastReadTextRef.current = text;
-          const added = await invoke("add_mobile_clip", { text });
-          if (added) {
-            fetchHistory();
-          }
-        }
-      } catch(e) {
-        console.log("Mobile clipboard is non-text or unavailable, skipping:", e);
-      }
-    };
-
-    setTimeout(() => { checkClipboard(); }, 800);
-
-    const handleFocus = () => {
-      setTimeout(() => { checkClipboard(); }, 800);
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        setTimeout(() => { checkClipboard(); }, 800);
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [isMobile, autoSyncMobile, fetchHistory]);
 
   const [isScanning, setIsScanning] = useState(false);
   const [isScanningLoading, setIsScanningLoading] = useState(false);
@@ -558,23 +504,7 @@ function App() {
         } else if (focused) {
           fetchHistory(); // Refresh history unconditionally on focus
 
-          // Sync Mobile Clipboard to PC when app gains focus
-          setTimeout(async () => {
-            try {
-              const t = await osType();
-              if (t === 'android' || t === 'ios') {
-                const text = await readText();
-                if (text && text.trim().length > 0) {
-                  const added = await invoke("add_mobile_clip", { text });
-                  if (added) {
-                    fetchHistory();
-                  }
-                }
-              }
-            } catch {
-              console.error("Mobile clipboard sync error:", e);
-            }
-          }, 500);
+
         }
       });
       unlistenFocusFn = unlistenFocus;
@@ -585,22 +515,7 @@ function App() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         fetchHistory();
-        setTimeout(async () => {
-          try {
-            const t = await osType();
-            if (t === 'android' || t === 'ios') {
-              const text = await readText();
-              if (text && text.trim().length > 0) {
-                const added = await invoke("add_mobile_clip", { text });
-                if (added) {
-                  fetchHistory();
-                }
-              }
-            }
-          } catch {
-            console.error("Mobile clipboard sync error:", e);
-          }
-        }, 500);
+
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -1877,21 +1792,6 @@ function App() {
                             )}
                           </AnimatePresence>
                         </div>
-
-                        { isMobile && (
-                          <div>
-                            <div className="flex items-center justify-between mb-2">
-                              <label className="text-sm font-medium text-slate-700 dark:text-gray-300">Auto-Sync Text</label>
-                              <button
-                                onClick={toggleAutoSyncMobile}
-                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoSyncMobile ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-gray-600'}`}
-                              >
-                                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoSyncMobile ? 'translate-x-4.5' : 'translate-x-1'}`} />
-                              </button>
-                            </div>
-                            <p className="text-xs text-slate-500 dark:text-gray-500">Automatically sync text from your mobile clipboard when you open CipherClip.</p>
-                          </div>
-                        )}
 
                         { !isMobile && (
                           <>

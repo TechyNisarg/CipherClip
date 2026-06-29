@@ -15,8 +15,6 @@ pub struct AppSettings {
     pub blocked_ips: Vec<String>,
     #[serde(default = "generate_device_id")]
     pub device_id: String,
-    #[serde(default)]
-    pub auto_sync_mobile: bool,
 }
 
 fn default_theme() -> String {
@@ -36,7 +34,6 @@ impl Default for AppSettings {
             master_password_hash: None,
             blocked_ips: Vec::new(),
             device_id: generate_device_id(),
-            auto_sync_mobile: false,
         }
     }
 }
