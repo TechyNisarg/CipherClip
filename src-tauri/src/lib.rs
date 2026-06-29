@@ -571,8 +571,8 @@ async fn get_attachment_bytes(app_handle: tauri::AppHandle, state: tauri::State<
         let mobile_path = storage.attachments_dir.join(format!("{}-w{}.jpg", uuid, width));
         if let Ok(img) = image::load_from_memory(&bytes) {
             if img.width() > width {
-                // Triangle is fast and perfectly acceptable for downscaling
-                let resized = img.resize(width, width * 10, image::imageops::FilterType::Triangle);
+                // Lanczos3 provides much better quality for downscaling
+                let resized = img.resize(width, width * 10, image::imageops::FilterType::Lanczos3);
                 let mut cursor = std::io::Cursor::new(Vec::new());
                 if resized.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
                     let result_bytes = cursor.into_inner();
@@ -587,15 +587,25 @@ async fn get_attachment_bytes(app_handle: tauri::AppHandle, state: tauri::State<
 }
 
 #[tauri::command]
-async fn export_attachment(app_handle: tauri::AppHandle, uuid: String, destination_type: String) -> Result<String, String> {
+async fn export_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, AppState>, uuid: String, destination_type: String) -> Result<String, String> {
     use tauri::Manager;
     let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
     
-    let src_path = storage.get_attachment_path(&uuid);
-    if !src_path.exists() {
+    let enc_path = storage.get_encrypted_attachment_path(&uuid);
+    let path = storage.get_attachment_path(&uuid);
+    let legacy = storage.get_legacy_attachment_path(&uuid);
+
+    let bytes = if enc_path.exists() {
+        let encrypted_bytes = std::fs::read(&enc_path).map_err(|e| format!("Failed to read {}: {}", enc_path.display(), e))?;
+        state.crypto.decrypt(&encrypted_bytes).map_err(|e| e.to_string())?
+    } else if path.exists() {
+        std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?
+    } else if legacy.exists() {
+        std::fs::read(&legacy).map_err(|e| format!("File not found: {}", legacy.display()))?
+    } else {
         return Err("Attachment not found locally.".into());
-    }
+    };
 
     let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
     let filename = if destination_type == "share" {
@@ -611,7 +621,7 @@ async fn export_attachment(app_handle: tauri::AppHandle, uuid: String, destinati
     };
     
     let dest_path = dest_dir.join(&filename);
-    std::fs::copy(&src_path, &dest_path).map_err(|e| format!("Failed to copy file: {}", e))?;
+    std::fs::write(&dest_path, &bytes).map_err(|e| format!("Failed to save file: {}", e))?;
     
     Ok(dest_path.to_string_lossy().to_string())
 }

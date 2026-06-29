@@ -1133,7 +1133,7 @@ function App() {
               )}
               <button 
                 onClick={() => setPreviewImage(null)} 
-                className="p-2 text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
+                className="text-white/70 hover:text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors flex items-center justify-center w-11 h-11"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -1159,7 +1159,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
             onClick={() => setAlertModal(null)}
           >
             <motion.div 
