@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
 import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2, FileText, Image as ImageIcon } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
-import { writeText as writeTextToClipboard, readText, writeImage } from '@tauri-apps/plugin-clipboard-manager';
+import { writeText as writeTextToClipboard, writeImage } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { Image as TauriImage } from '@tauri-apps/api/image';
@@ -46,7 +46,7 @@ class AsyncQueue {
       this.queue.push(async () => {
         try {
           resolve(await task());
-        } catch {
+        } catch (e) {
           reject(e);
         }
       });
@@ -249,13 +249,13 @@ function App() {
       try {
         const hasPwd = await invoke("has_master_password");
         setHasMasterPassword(hasPwd as boolean);
-      } catch {
+      } catch (e) {
         console.warn("Failed to fetch master password status:", e);
       }
       try {
         const isAutoStartEnabled = await isEnabled();
         setAutoStart(isAutoStartEnabled);
-      } catch {
+      } catch (e) {
         console.warn("Autostart plugin error:", e);
       }
     } catch (error) {
@@ -592,7 +592,7 @@ function App() {
               const arrayBuffer = await pngBlob.arrayBuffer();
               const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
               await writeImage(tauriImg);
-            } catch {
+            } catch (e) {
               console.error("Plugin writeImage failed, falling back to navigator", e);
               await navigator.clipboard.write([
                 new ClipboardItem({ 'image/png': pngBlob })
