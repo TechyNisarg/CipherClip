@@ -2281,7 +2281,7 @@ function App() {
                   initial={{ opacity: 0, y: 10, scale: 0.9 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                  className="flex flex-col items-end gap-3 pointer-events-auto"
+                  className="flex flex-col items-stretch gap-3 pointer-events-auto min-w-[160px]"
                 >
                   <button
                     onClick={() => {

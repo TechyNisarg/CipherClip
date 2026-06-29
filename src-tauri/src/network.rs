@@ -297,9 +297,16 @@ impl NetworkManager {
 
                                                                 if let Some((device_id, map)) = map_opt {
                                                                     // Also push our own recent events so the peer stays up-to-date
-                                                                    let pushed_events = if let Ok(db_l) = db_catchup.lock() {
+                                                                    let mut pushed_events = if let Ok(db_l) = db_catchup.lock() {
                                                                         db_l.get_recent_events(200).unwrap_or_default()
                                                                     } else { vec![] };
+                                                                    for ev in pushed_events.iter_mut() {
+                                                                        if let Some(payload_bytes) = &ev.payload {
+                                                                            if let Ok(dec) = crypto_catchup.decrypt(payload_bytes) {
+                                                                                ev.payload = Some(dec);
+                                                                            }
+                                                                        }
+                                                                    }
 
                                                                     let req_payload = serde_json::json!({
                                                                         "device_id": device_id,
@@ -598,7 +605,14 @@ impl NetworkManager {
                                                     let mut pushed_events = Vec::new();
                                                     for evt in pushed_arr {
                                                         match serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
-                                                            Ok(e) => pushed_events.push(e),
+                                                            Ok(mut e) => {
+                                                                if let Some(payload_bytes) = &e.payload {
+                                                                    if let Ok(enc) = crypto_c.encrypt(payload_bytes) {
+                                                                        e.payload = Some(enc);
+                                                                    }
+                                                                }
+                                                                pushed_events.push(e);
+                                                            }
                                                             Err(err) => println!("Failed to parse SyncEvent in SYNC_REQ: {:?}", err),
                                                         }
                                                     }
@@ -657,9 +671,16 @@ impl NetworkManager {
                                                         peer_clocks.insert(k.clone(), c);
                                                     }
                                                 }
-                                                let missing_events = if let Ok(db_lock) = db_c.lock() {
+                                                let mut missing_events = if let Ok(db_lock) = db_c.lock() {
                                                     db_lock.get_missing_events(&peer_clocks, 50).unwrap_or_default()
                                                 } else { vec![] };
+                                                for ev in missing_events.iter_mut() {
+                                                    if let Some(payload_bytes) = &ev.payload {
+                                                        if let Ok(dec) = crypto_c.decrypt(payload_bytes) {
+                                                            ev.payload = Some(dec);
+                                                        }
+                                                    }
+                                                }
 
                                                 // Always send SYNC_RES (even empty) so the client
                                                 // doesn't hang waiting for a response.
@@ -693,7 +714,14 @@ impl NetworkManager {
                                                 let mut events = Vec::new();
                                                 for evt in events_arr {
                                                     match serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
-                                                        Ok(e) => events.push(e),
+                                                        Ok(mut e) => {
+                                                            if let Some(payload_bytes) = &e.payload {
+                                                                if let Ok(enc) = crypto_c.encrypt(payload_bytes) {
+                                                                    e.payload = Some(enc);
+                                                                }
+                                                            }
+                                                            events.push(e);
+                                                        }
                                                         Err(err) => println!("Failed to parse SyncEvent in SYNC_RES: {:?}", err),
                                                     }
                                                 }
@@ -792,9 +820,16 @@ impl NetworkManager {
                     } else { None };
 
                     if let Some((device_id, map)) = map_opt {
-                        let pushed_events = if let Ok(db_l) = db_clone.lock() {
+                        let mut pushed_events = if let Ok(db_l) = db_clone.lock() {
                             db_l.get_recent_events(200).unwrap_or_default()
                         } else { vec![] };
+                        for ev in pushed_events.iter_mut() {
+                            if let Some(payload_bytes) = &ev.payload {
+                                if let Ok(dec) = crypto_clone.decrypt(payload_bytes) {
+                                    ev.payload = Some(dec);
+                                }
+                            }
+                        }
                         let payload = serde_json::json!({
                             "device_id": device_id,
                             "peer_sync_state": map,
@@ -828,7 +863,12 @@ impl NetworkManager {
                                                                     if let Some(events_arr) = res_val["events"].as_array() {
                                                                         let mut events = Vec::new();
                                                                         for evt in events_arr {
-                                                                            if let Ok(e) = serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
+                                                                            if let Ok(mut e) = serde_json::from_value::<crate::db::SyncEvent>(evt.clone()) {
+                                                                                if let Some(payload_bytes) = &e.payload {
+                                                                                    if let Ok(enc) = crypto_clone.encrypt(payload_bytes) {
+                                                                                        e.payload = Some(enc);
+                                                                                    }
+                                                                                }
                                                                                 events.push(e);
                                                                             }
                                                                         }

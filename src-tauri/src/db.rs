@@ -191,7 +191,7 @@ impl Database {
         let new_id = self.conn.last_insert_rowid();
 
         let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM clipboard_history WHERE pinned = 0 AND is_locked = 0",
+            "SELECT COUNT(*) FROM clipboard_history WHERE pinned = 0 AND is_locked = 0 AND is_deleted = 0",
             [],
             |row| row.get(0),
         )?;
@@ -201,7 +201,7 @@ impl Database {
             let to_delete = count - actual_limit;
             if to_delete > 0 {
                 self.conn.execute(
-                    "UPDATE clipboard_history SET is_deleted = 1, encrypted_payload = NULL WHERE id IN (SELECT id FROM clipboard_history WHERE pinned = 0 AND is_locked = 0 ORDER BY timestamp ASC LIMIT ?1)",
+                    "UPDATE clipboard_history SET is_deleted = 1, encrypted_payload = NULL WHERE id IN (SELECT id FROM clipboard_history WHERE pinned = 0 AND is_locked = 0 AND is_deleted = 0 ORDER BY timestamp ASC, id ASC LIMIT ?1)",
                     rusqlite::params![to_delete],
                 )?;
             }
@@ -236,9 +236,10 @@ impl Database {
         
         let vector_clock = self.get_next_hlc();
         let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let event_type = if pinned { "PIN" } else { "UNPIN" };
         self.conn.execute(
             "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params!["UPDATE", &uuid, &self.device_id, vector_clock, timestamp, has_attachment, attachment_path],
+            rusqlite::params![event_type, &uuid, &self.device_id, vector_clock, timestamp, has_attachment, attachment_path],
         )?;
         Ok(())
     }
@@ -642,6 +643,16 @@ impl Database {
                 } else if evt.event_type == "LOCK" {
                     let _ = self.conn.execute(
                         "UPDATE clipboard_history SET is_locked = 1 WHERE uuid = ?1",
+                        [&evt.clip_uuid],
+                    );
+                } else if evt.event_type == "PIN" {
+                    let _ = self.conn.execute(
+                        "UPDATE clipboard_history SET pinned = 1 WHERE uuid = ?1",
+                        [&evt.clip_uuid],
+                    );
+                } else if evt.event_type == "UNPIN" {
+                    let _ = self.conn.execute(
+                        "UPDATE clipboard_history SET pinned = 0 WHERE uuid = ?1",
                         [&evt.clip_uuid],
                     );
                 }
