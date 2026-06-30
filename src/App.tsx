@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
@@ -81,44 +81,23 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
       const rawUuid = clip.attachment_uuid || clip.attachment_path;
       const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
       if (uuid) {
-        if (isMobile) {
-          // As requested: Load high-res images directly in the inline feed!
-          // We pass maxWidth: 800 to resize the 4K PNG down to a mobile-friendly JPEG on the Rust side.
-          // This COMPLETELY prevents the Android WebView from exhausting its GPU texture memory 
-          // (which is the actual root cause of the 10-35% partial crops and the 20-second lags).
-          imageQueue.enqueue(() => invoke<Uint8Array>("get_attachment_bytes", { uuid, maxWidth: 800 }))
-            .then(bytes => {
-              if (isMounted.current) {
-                const blob = new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' });
-                setSrc(URL.createObjectURL(blob));
-              }
-            })
-            .catch(e => {
-              console.error("Failed to load attachment bytes:", e);
-              if (clip.content) {
-                setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
-              } else {
-                setHasError(true);
-              }
-            });
-        } else {
-          invoke<string>("get_attachment_path_str", { uuid })
-            .then(async path => {
-              if (isMounted.current) {
-                setSrc(convertFileSrc(path));
-              }
-            })
-            .catch(e => {
-              console.error("Failed to load attachment image:", e);
-              if (clip.content) {
-                setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
-              } else if (clip.attachment_path) {
-                setSrc(convertFileSrc(clip.attachment_path));
-              } else {
-                setHasError(true);
-              }
-            });
-        }
+        // Load high-res images directly in the inline feed!
+        // We pass maxWidth: 800 to resize the 4K PNG down to a mobile-friendly JPEG on the Rust side.
+        imageQueue.enqueue(() => invoke<Uint8Array>("get_attachment_bytes", { uuid, maxWidth: 800 }))
+          .then(bytes => {
+            if (isMounted.current) {
+              const blob = new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' });
+              setSrc(URL.createObjectURL(blob));
+            }
+          })
+          .catch(e => {
+            console.error("Failed to load attachment bytes:", e);
+            if (clip.content) {
+              setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
+            } else {
+              setHasError(true);
+            }
+          });
       }
     } else if (clip.content) {
       setSrc(`data:${getMimeType(clip.content)};base64,${clip.content}`);
@@ -563,6 +542,34 @@ function App() {
         if (isMobile && clip.content_type === "image") {
           showToast("Image copy not supported. Double-tap to preview, then use the Share button.");
           return;
+        } else if (clip.content_type === "image") {
+          try {
+            const rawUuid = clip.attachment_uuid || clip.attachment_path;
+            const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
+            if (uuid) {
+              const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid });
+              const tauriImg = await TauriImage.fromBytes(new Uint8Array(bytes));
+              await writeImage(tauriImg);
+            }
+          } catch(e) {
+            console.error("Failed to copy high-res image", e);
+            if (clip.content) {
+              // fallback
+              const canvas = document.createElement('canvas');
+              const img = new Image();
+              img.src = `data:image/webp;base64,${clip.content}`;
+              await new Promise((r) => { img.onload = r; });
+              canvas.width = img.width;
+              canvas.height = img.height;
+              canvas.getContext('2d')?.drawImage(img, 0, 0);
+              const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+              if (pngBlob) {
+                const arrayBuffer = await pngBlob.arrayBuffer();
+                const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
+                await writeImage(tauriImg);
+              }
+            }
+          }
         } else {
           await invoke("copy_attachment", { 
             path: clip.attachment_path,
