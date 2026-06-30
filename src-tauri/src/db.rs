@@ -169,7 +169,7 @@ impl Database {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i64;
+            .as_micros() as i64;
 
         let mut hasher = Sha256::new();
         hasher.update(encrypted_payload);
@@ -235,7 +235,7 @@ impl Database {
         )?;
         
         let vector_clock = self.get_next_hlc();
-        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
         let event_type = if pinned { "PIN" } else { "UNPIN" };
         self.conn.execute(
             "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -253,7 +253,7 @@ impl Database {
         if is_locked {
             if let Some(uuid) = self.get_uuid_by_id(id)? {
                 let vector_clock = self.get_next_hlc();
-                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
                 let _ = self.conn.execute(
                     "INSERT OR IGNORE INTO event_log \
                      (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) \
@@ -713,7 +713,7 @@ impl Database {
                     c.pinned, c.is_locked 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
-             ORDER BY e.timestamp ASC"
+             ORDER BY e.id ASC"
         )?;
         
         let event_iter = stmt.query_map([], |row| {
@@ -764,7 +764,7 @@ impl Database {
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              WHERE e.device_id = ?1
-             ORDER BY e.timestamp DESC LIMIT ?2"
+             ORDER BY e.id DESC LIMIT ?2"
         )?;
 
         let event_iter = stmt.query_map(rusqlite::params![&self.device_id, limit], |row| {
