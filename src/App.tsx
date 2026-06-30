@@ -544,36 +544,6 @@ function App() {
         if (isMobile && clip.content_type === "image") {
           showToast("Image copy not supported. Double-tap to preview, then use the Share button.");
           return;
-        } else if (clip.content_type === "image") {
-          try {
-            const rawUuid = clip.attachment_uuid || clip.attachment_path;
-            const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
-            if (uuid) {
-              const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid });
-              const blob = new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' });
-              const url = URL.createObjectURL(blob);
-              const canvas = document.createElement('canvas');
-              const img = new Image();
-              img.src = url;
-              await new Promise((r) => { img.onload = r; });
-              canvas.width = img.width;
-              canvas.height = img.height;
-              canvas.getContext('2d')?.drawImage(img, 0, 0);
-              URL.revokeObjectURL(url);
-              
-              const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-              if (pngBlob) {
-                const arrayBuffer = await pngBlob.arrayBuffer();
-                const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-                await writeImage(tauriImg);
-              } else {
-                throw new Error("Failed to create PNG blob");
-              }
-            }
-          } catch(e) {
-            console.error("Failed to copy high-res image", e);
-            throw e; // Bubble up to outer catch to show Notice
-          }
         } else {
           await invoke("copy_attachment", { 
             path: clip.attachment_path,
@@ -1685,7 +1655,7 @@ function App() {
                             <div className="flex justify-between items-center">
                               <span className="text-[10px] text-slate-400 dark:text-gray-500 flex items-center gap-1">
                                 <Clock className="w-3 h-3" />
-                                {new Date(clip.timestamp * 1000).toLocaleDateString()}
+                                {new Date(clip.timestamp > 1e14 ? clip.timestamp / 1000 : clip.timestamp * 1000).toLocaleDateString()}
                               </span>
                               <div className="flex gap-1">
                                 <button onClick={() => restoreClip(clip.id)} className="p-1.5 text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded transition-colors" title="Restore">
@@ -2575,7 +2545,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
         <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-gray-500">
           <Clock className="w-3 h-3" />
           <span>
-            {new Date(clip.timestamp * 1000).toLocaleTimeString([], {
+            {new Date(clip.timestamp > 1e14 ? clip.timestamp / 1000 : clip.timestamp * 1000).toLocaleTimeString([], {
               hour: "2-digit",
               minute: "2-digit",
             })}

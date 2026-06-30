@@ -639,8 +639,9 @@ impl NetworkManager {
                                                                     let uuid = if extracted.is_empty() { e.clip_uuid.clone() } else { extracted };
                                                                     let path = app_data_dir_c.join("attachments").join(format!("{}.png", uuid));
                                                                     let legacy_path = app_data_dir_c.join("attachments").join(format!("{}.bin", uuid));
+                                                                    let enc_path = app_data_dir_c.join("attachments").join(format!("{}.enc", uuid));
                                                                     
-                                                                    if !path.exists() && !legacy_path.exists() {
+                                                                    if !path.exists() && !legacy_path.exists() && !enc_path.exists() {
                                                                         let _ = ui_callback_c("download_progress", serde_json::json!({
                                                                             "uuid": uuid,
                                                                             "progress": 0,

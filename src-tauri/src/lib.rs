@@ -629,15 +629,17 @@ async fn export_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_,
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn copy_attachment(app_handle: tauri::AppHandle, path: String, content_type: String) -> Result<(), String> {
-    if content_type == "image" {
-        // For images: Use Tauri clipboard plugin from frontend (runs on correct thread)
-        // We emit an event so frontend can handle it
-        let _ = app_handle.emit("copy_image_from_path", &path);
-        Ok(())
-    } else {
-        use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
+    use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
+    let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
 
-        let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
+    if content_type == "image" {
+        if let Ok(img) = RustImage::from_path(&path) {
+            ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e))?;
+            Ok(())
+        } else {
+            Err("Failed to load image from path".to_string())
+        }
+    } else {
         let file_uri = if path.starts_with("file://") {
             path
         } else {
