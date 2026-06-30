@@ -69,6 +69,7 @@ const imageQueue = new AsyncQueue();
 const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, className: string, isDownloading?: boolean }) => {
   // Use the inline thumbnail preview initially if available, fallback to full webp/jpeg based on content
   const [src, setSrc] = useState<string>(clip.content ? `data:${getMimeType(clip.content)};base64,${clip.content}` : '');
+  const [isHighRes, setIsHighRes] = useState(!clip.has_attachment);
   const [hasError, setHasError] = useState(false);
   const isMounted = useRef(true);
 
@@ -88,6 +89,7 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
             if (isMounted.current) {
               const blob = new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' });
               setSrc(URL.createObjectURL(blob));
+              setIsHighRes(true);
             }
           })
           .catch(e => {
@@ -109,7 +111,7 @@ const AttachmentImage = ({ clip, className, isDownloading }: { clip: ClipItem, c
       src={src} 
       alt="" 
       draggable={true} 
-      className={className} 
+      className={`${className} ${!isHighRes ? 'blur-md opacity-70 transition-all duration-500 ease-in-out' : 'transition-all duration-500 ease-in-out'}`} 
       onError={() => setHasError(true)}
     />
   ) : (
@@ -548,27 +550,29 @@ function App() {
             const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
             if (uuid) {
               const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid });
-              const tauriImg = await TauriImage.fromBytes(new Uint8Array(bytes));
-              await writeImage(tauriImg);
-            }
-          } catch(e) {
-            console.error("Failed to copy high-res image", e);
-            if (clip.content) {
-              // fallback
+              const blob = new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' });
+              const url = URL.createObjectURL(blob);
               const canvas = document.createElement('canvas');
               const img = new Image();
-              img.src = `data:image/webp;base64,${clip.content}`;
+              img.src = url;
               await new Promise((r) => { img.onload = r; });
               canvas.width = img.width;
               canvas.height = img.height;
               canvas.getContext('2d')?.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
+              
               const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
               if (pngBlob) {
                 const arrayBuffer = await pngBlob.arrayBuffer();
                 const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
                 await writeImage(tauriImg);
+              } else {
+                throw new Error("Failed to create PNG blob");
               }
             }
+          } catch(e) {
+            console.error("Failed to copy high-res image", e);
+            throw e; // Bubble up to outer catch to show Notice
           }
         } else {
           await invoke("copy_attachment", { 
@@ -590,21 +594,17 @@ function App() {
           const img = new Image();
           img.src = `data:image/webp;base64,${clip.content}`;
           await new Promise((r) => { img.onload = r; });
+          canvas.width = img.width;
           canvas.height = img.height;
           canvas.getContext('2d')?.drawImage(img, 0, 0);
           
           const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
           if (pngBlob) {
-            try {
-              const arrayBuffer = await pngBlob.arrayBuffer();
-              const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-              await writeImage(tauriImg);
-            } catch (e) {
-              console.error("Plugin writeImage failed, falling back to navigator", e);
-              await navigator.clipboard.write([
-                new ClipboardItem({ 'image/png': pngBlob })
-              ]);
-            }
+            const arrayBuffer = await pngBlob.arrayBuffer();
+            const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
+            await writeImage(tauriImg);
+          } else {
+            throw new Error("Failed to create PNG blob for legacy image");
           }
         }
       } else {

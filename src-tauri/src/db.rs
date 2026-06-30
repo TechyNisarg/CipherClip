@@ -326,6 +326,14 @@ impl Database {
     }
 
     pub fn permanently_delete_clip(&self, id: i64) -> SqlResult<()> {
+        if let Some(uuid) = self.get_uuid_by_id(id)? {
+            let vector_clock = self.get_next_hlc();
+            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+            let _ = self.conn.execute(
+                "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
+            );
+        }
         self.conn
             .execute("DELETE FROM clipboard_history WHERE id = ?1", (id,))?;
         Ok(())
@@ -421,11 +429,30 @@ impl Database {
     }
 
     pub fn clear_all(&self, delete_locked: bool) -> SqlResult<()> {
+        let mut uuids = Vec::new();
         if delete_locked {
+            let mut stmt = self.conn.prepare("SELECT uuid FROM clipboard_history")?;
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                uuids.push(row.get::<_, String>(0)?);
+            }
             self.conn.execute("DELETE FROM clipboard_history", ())?;
         } else {
-            self.conn
-                .execute("DELETE FROM clipboard_history WHERE is_locked = 0", ())?;
+            let mut stmt = self.conn.prepare("SELECT uuid FROM clipboard_history WHERE is_locked = 0")?;
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                uuids.push(row.get::<_, String>(0)?);
+            }
+            self.conn.execute("DELETE FROM clipboard_history WHERE is_locked = 0", ())?;
+        }
+        
+        let vector_clock = self.get_next_hlc();
+        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+        for uuid in uuids {
+            let _ = self.conn.execute(
+                "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
+            );
         }
         Ok(())
     }
