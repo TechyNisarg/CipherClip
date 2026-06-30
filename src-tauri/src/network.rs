@@ -547,42 +547,50 @@ impl NetworkManager {
                                 if content_type == "BIN_REQ" {
                                     if let Ok(uuid) = String::from_utf8(decrypted) {
                                         if let Ok(storage) = crate::storage::StorageManager::new(app_data_dir_c.clone()) {
-                                            let mut path = storage.get_attachment_path(&uuid);
-                                            if !path.exists() {
-                                                let legacy_path = storage.get_legacy_attachment_path(&uuid);
-                                                if legacy_path.exists() {
-                                                    path = legacy_path;
-                                                }
-                                            }
-                                            if path.exists() {
-                                                if let Ok(metadata) = std::fs::metadata(&path) {
-                                                    let file_size = metadata.len();
-                                                    let num_chunks = ((file_size + 65535) / 65536) as u32;
+                                            let enc_path = storage.get_encrypted_attachment_path(&uuid);
+                                            let path = storage.get_attachment_path(&uuid);
+                                            let legacy = storage.get_legacy_attachment_path(&uuid);
+                                            
+                                            let bytes = if enc_path.exists() {
+                                                if let Ok(enc_bytes) = std::fs::read(&enc_path) {
+                                                    crypto_c.decrypt(&enc_bytes).unwrap_or_default()
+                                                } else { Vec::new() }
+                                            } else if path.exists() {
+                                                std::fs::read(&path).unwrap_or_default()
+                                            } else if legacy.exists() {
+                                                std::fs::read(&legacy).unwrap_or_default()
+                                            } else {
+                                                Vec::new()
+                                            };
 
-                                                    // Send BIN_RES header
-                                                    let res_type = b"BIN_RES";
-                                                    let mut header = Vec::new();
-                                                    header.push(res_type.len() as u8);
-                                                    header.extend_from_slice(res_type);
-                                                    header.extend_from_slice(&num_chunks.to_be_bytes());
-                                                    
-                                                    // Send UUID so receiver knows which file this is
-                                                    let uuid_bytes = uuid.as_bytes();
-                                                    header.extend_from_slice(&(uuid_bytes.len() as u32).to_be_bytes());
-                                                    header.extend_from_slice(uuid_bytes);
-                                                    
-                                                    let mut stream_clone = stream.try_clone().unwrap();
-                                                    if stream_clone.write_all(&header).is_ok() {
-                                                        let crypto_clone = crypto_c.clone();
-                                                        let _ = storage.read_attachment_stream(&uuid, |chunk| {
-                                                            if let Ok(encrypted_chunk) = crypto_clone.encrypt(chunk) {
-                                                                let mut chunk_packet = Vec::new();
-                                                                chunk_packet.extend_from_slice(&(encrypted_chunk.len() as u32).to_be_bytes());
-                                                                chunk_packet.extend_from_slice(&encrypted_chunk);
-                                                                stream_clone.write_all(&chunk_packet).map_err(|e| e.to_string())?;
+                                            if !bytes.is_empty() {
+                                                let file_size = bytes.len() as u64;
+                                                let num_chunks = ((file_size + 65535) / 65536) as u32;
+
+                                                // Send BIN_RES header
+                                                let res_type = b"BIN_RES";
+                                                let mut header = Vec::new();
+                                                header.push(res_type.len() as u8);
+                                                header.extend_from_slice(res_type);
+                                                header.extend_from_slice(&num_chunks.to_be_bytes());
+                                                
+                                                // Send UUID so receiver knows which file this is
+                                                let uuid_bytes = uuid.as_bytes();
+                                                header.extend_from_slice(&(uuid_bytes.len() as u32).to_be_bytes());
+                                                header.extend_from_slice(uuid_bytes);
+                                                
+                                                let mut stream_clone = stream.try_clone().unwrap();
+                                                if stream_clone.write_all(&header).is_ok() {
+                                                    let crypto_clone = crypto_c.clone();
+                                                    for chunk in bytes.chunks(65536) {
+                                                        if let Ok(encrypted_chunk) = crypto_clone.encrypt(chunk) {
+                                                            let mut chunk_packet = Vec::new();
+                                                            chunk_packet.extend_from_slice(&(encrypted_chunk.len() as u32).to_be_bytes());
+                                                            chunk_packet.extend_from_slice(&encrypted_chunk);
+                                                            if stream_clone.write_all(&chunk_packet).is_err() {
+                                                                break;
                                                             }
-                                                            Ok(())
-                                                        });
+                                                        }
                                                     }
                                                 }
                                             }
@@ -989,7 +997,7 @@ pub fn download_attachment(peer_ip: &str, uuid: &str, crypto: std::sync::Arc<cra
                                     if stream.read_exact(&mut uuid_buf).is_ok() {
                                         let clip_uuid = String::from_utf8_lossy(&uuid_buf).to_string();
                                         if let Ok(storage) = crate::storage::StorageManager::new(app_data_dir.clone()) {
-                                            let _ = storage.save_chunk(&clip_uuid, &[], false);
+                                            let mut file_data = Vec::new();
                                             let mut downloaded_bytes = 0;
                                             for i in 0..num_chunks {
                                                 let mut chunk_len_buf = [0u8; 4];
@@ -1000,10 +1008,14 @@ pub fn download_attachment(peer_ip: &str, uuid: &str, crypto: std::sync::Arc<cra
                                                 if stream.read_exact(&mut chunk_buf).is_err() { break; }
 
                                                 if let Ok(decrypted) = crypto.decrypt(&chunk_buf) {
-                                                    let _ = storage.save_chunk(&clip_uuid, &decrypted, true);
+                                                    file_data.extend_from_slice(&decrypted);
                                                     downloaded_bytes += decrypted.len();
                                                     ui_callback("download_progress", serde_json::json!({ "uuid": clip_uuid.clone(), "progress": if num_chunks > 0 { (i as f64 / num_chunks as f64 * 100.0) as u32 } else { 100 }, "downloaded": downloaded_bytes }));
                                                 } else { break; }
+                                            }
+                                            let enc_path = storage.get_encrypted_attachment_path(&clip_uuid);
+                                            if let Ok(encrypted_file) = crypto.encrypt(&file_data) {
+                                                let _ = std::fs::write(&enc_path, &encrypted_file);
                                             }
                                             ui_callback("download_progress", serde_json::json!({ "uuid": clip_uuid.clone(), "progress": 100, "downloaded": downloaded_bytes }));
                                             ui_callback("clipboard-update", serde_json::json!({}));
