@@ -544,6 +544,19 @@ function App() {
         if (isMobile && clip.content_type === "image") {
           showToast("Image copy not supported. Double-tap to preview, then use the Share button.");
           return;
+        } else if (clip.content_type === "image") {
+          const rawUuid = clip.attachment_uuid || clip.attachment_path;
+          const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
+          if (uuid) {
+            const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid });
+            const tauriImg = await TauriImage.fromBytes(new Uint8Array(bytes));
+            await writeImage(tauriImg);
+          } else {
+            await invoke("copy_attachment", { 
+              path: clip.attachment_path,
+              contentType: clip.content_type
+            });
+          }
         } else {
           await invoke("copy_attachment", { 
             path: clip.attachment_path,
@@ -562,7 +575,8 @@ function App() {
         } else {
           const canvas = document.createElement('canvas');
           const img = new Image();
-          img.src = `data:image/webp;base64,${clip.content}`;
+          const mime = getMimeType(clip.content);
+          img.src = `data:${mime};base64,${clip.content}`;
           await new Promise((r) => { img.onload = r; });
           canvas.width = img.width;
           canvas.height = img.height;

@@ -63,6 +63,9 @@ fn get_my_ip() -> String {
 }
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+pub static ACTIVE_DOWNLOADS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
 static NETWORK_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 impl NetworkManager {
@@ -642,11 +645,21 @@ impl NetworkManager {
                                                                     let enc_path = app_data_dir_c.join("attachments").join(format!("{}.enc", uuid));
                                                                     
                                                                     if !path.exists() && !legacy_path.exists() && !enc_path.exists() {
-                                                                        let _ = ui_callback_c("download_progress", serde_json::json!({
-                                                                            "uuid": uuid,
-                                                                            "progress": 0,
-                                                                            "downloaded": 0
-                                                                        }));
+                                                                        let active_lock = crate::network::ACTIVE_DOWNLOADS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+                                                                        let mut active = active_lock.lock().unwrap();
+                                                                        if active.insert(uuid.clone()) {
+                                                                            let _ = ui_callback_c("download_progress", serde_json::json!({
+                                                                                "uuid": uuid.clone(),
+                                                                                "progress": 0,
+                                                                                "downloaded": 0
+                                                                            }));
+                                                                            std::thread::spawn(move || {
+                                                                                let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
+                                                                                if let Ok(mut active) = crate::network::ACTIVE_DOWNLOADS.get().unwrap().lock() {
+                                                                                    active.remove(&uuid);
+                                                                                }
+                                                                            });
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -748,8 +761,9 @@ impl NetworkManager {
                                                               let uuid = if extracted.is_empty() { e.clip_uuid.clone() } else { extracted };
                                                               let path = app_data_dir_c.join("attachments").join(format!("{}.png", uuid));
                                                               let legacy_path = app_data_dir_c.join("attachments").join(format!("{}.bin", uuid));
+                                                              let enc_path = app_data_dir_c.join("attachments").join(format!("{}.enc", uuid));
                                                               
-                                                              if !path.exists() && !legacy_path.exists() {
+                                                              if !path.exists() && !legacy_path.exists() && !enc_path.exists() {
                                                                   let _ = ui_callback_c("download_progress", serde_json::json!({
                                                                       "uuid": uuid,
                                                                       "progress": 0,
@@ -772,10 +786,18 @@ impl NetworkManager {
                                                         
                                                         let path = c_dir.join("attachments").join(format!("{}.png", uuid));
                                                         let legacy_path = c_dir.join("attachments").join(format!("{}.bin", uuid));
-                                                        if !path.exists() && !legacy_path.exists() {
-                                                            std::thread::spawn(move || {
-                                                                let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
-                                                            });
+                                                        let enc_path = c_dir.join("attachments").join(format!("{}.enc", uuid));
+                                                        if !path.exists() && !legacy_path.exists() && !enc_path.exists() {
+                                                            let active_lock = crate::network::ACTIVE_DOWNLOADS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+                                                            let mut active = active_lock.lock().unwrap();
+                                                            if active.insert(uuid.clone()) {
+                                                                std::thread::spawn(move || {
+                                                                    let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
+                                                                    if let Ok(mut active) = crate::network::ACTIVE_DOWNLOADS.get().unwrap().lock() {
+                                                                        active.remove(&uuid);
+                                                                    }
+                                                                });
+                                                            }
                                                         }
                                                     }
                                                 }
