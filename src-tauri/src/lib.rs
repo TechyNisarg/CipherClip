@@ -633,12 +633,27 @@ async fn copy_attachment(app_handle: tauri::AppHandle, path: String, content_typ
     let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
 
     if content_type == "image" {
-        if let Ok(img) = RustImage::from_path(&path) {
-            ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e))?;
-            Ok(())
-        } else {
-            Err("Failed to load image from path".to_string())
+        let mut attempt = 0;
+        let mut res = Err("Failed to set image clipboard".to_string());
+        while attempt < 5 {
+            if let Ok(img) = RustImage::from_path(&path) {
+                match ctx.set_image(img) {
+                    Ok(_) => {
+                        res = Ok(());
+                        break;
+                    }
+                    Err(e) => {
+                        res = Err(format!("Failed to set image clipboard: {}", e));
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        attempt += 1;
+                    }
+                }
+            } else {
+                res = Err("Failed to load image from path".to_string());
+                break;
+            }
         }
+        res
     } else {
         let file_uri = if path.starts_with("file://") {
             path
@@ -674,11 +689,25 @@ async fn copy_image_bytes(bytes: Vec<u8>) -> Result<(), String> {
     
     std::fs::write(&temp_path, &bytes).map_err(|e| format!("Temp write error: {}", e))?;
     
-    let res = if let Ok(img) = RustImage::from_path(&temp_path.to_string_lossy().to_string()) {
-        ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e))
-    } else {
-        Err("Failed to parse image from temp file".to_string())
-    };
+    let mut res = Err("Failed to parse image from temp file".to_string());
+    let mut attempt = 0;
+    while attempt < 5 {
+        if let Ok(img) = RustImage::from_path(&temp_path.to_string_lossy().to_string()) {
+            match ctx.set_image(img) {
+                Ok(_) => {
+                    res = Ok(());
+                    break;
+                }
+                Err(e) => {
+                    res = Err(format!("Failed to set image clipboard: {}", e));
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    attempt += 1;
+                }
+            }
+        } else {
+            break;
+        }
+    }
     
     let _ = std::fs::remove_file(&temp_path);
     res
