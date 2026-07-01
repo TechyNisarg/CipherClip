@@ -635,7 +635,7 @@ impl NetworkManager {
                                                               Err(e) => println!("Error applying SYNC_REQ pushed events: {:?}", e),
                                                           }
                                                             // Tell UI the attachment is downloading BEFORE emitting clipboard-update, ONLY if it actually needs downloading
-                                                            for e in &events_clone {
+                                                            for e in events_clone {
                                                                 if e.has_attachment.unwrap_or(false) {
                                                                     let raw_path = e.attachment_path.clone().unwrap_or_default();
                                                                     let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
@@ -653,10 +653,15 @@ impl NetworkManager {
                                                                                 "progress": 0,
                                                                                 "downloaded": 0
                                                                             }));
+                                                                            let peer_ip = src_ip.to_string();
+                                                                            let c_crypto = crypto_c.clone();
+                                                                            let c_dir = app_data_dir_c.clone();
+                                                                            let c_cb = ui_callback_c.clone();
+                                                                            let thread_uuid = uuid.clone();
                                                                             std::thread::spawn(move || {
-                                                                                let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
+                                                                                let _ = crate::network::download_attachment(&peer_ip, &thread_uuid, c_crypto, c_dir, c_cb);
                                                                                 if let Ok(mut active) = crate::network::ACTIVE_DOWNLOADS.get().unwrap().lock() {
-                                                                                    active.remove(&uuid);
+                                                                                    active.remove(&thread_uuid);
                                                                                 }
                                                                             });
                                                                         }
@@ -664,25 +669,6 @@ impl NetworkManager {
                                                                 }
                                                             }
                                                             let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
-                                                        }
-                                                        for e in events_clone {
-                                                            if e.has_attachment.unwrap_or(false) {
-                                                                let peer_ip = src_ip.to_string();
-                                                                let raw_path = e.attachment_path.clone().unwrap_or_default();
-                                                                let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
-                                                                let uuid = if extracted.is_empty() { e.clip_uuid.clone() } else { extracted };
-                                                                let c_crypto = crypto_c.clone();
-                                                                let c_dir = app_data_dir_c.clone();
-                                                                let c_cb = ui_callback_c.clone();
-                                                                
-                                                                let path = c_dir.join("attachments").join(format!("{}.png", uuid));
-                                                                let legacy_path = c_dir.join("attachments").join(format!("{}.bin", uuid));
-                                                                if !path.exists() && !legacy_path.exists() {
-                                                                    std::thread::spawn(move || {
-                                                                        let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
-                                                                    });
-                                                                }
-                                                            }
                                                         }
                                                     }
                                                 }
@@ -754,7 +740,7 @@ impl NetworkManager {
                                                           Err(e) => println!("Error applying SYNC_RES events: {:?}", e),
                                                       }
                                                       // Tell UI the attachment is downloading BEFORE emitting clipboard-update, ONLY if it actually needs downloading
-                                                      for e in &events_clone {
+                                                      for e in events_clone {
                                                           if e.has_attachment.unwrap_or(false) {
                                                               let raw_path = e.attachment_path.clone().unwrap_or_default();
                                                               let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
@@ -764,42 +750,30 @@ impl NetworkManager {
                                                               let enc_path = app_data_dir_c.join("attachments").join(format!("{}.enc", uuid));
                                                               
                                                               if !path.exists() && !legacy_path.exists() && !enc_path.exists() {
-                                                                  let _ = ui_callback_c("download_progress", serde_json::json!({
-                                                                      "uuid": uuid,
-                                                                      "progress": 0,
-                                                                      "downloaded": 0
-                                                                  }));
+                                                                  let active_lock = crate::network::ACTIVE_DOWNLOADS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+                                                                  let mut active = active_lock.lock().unwrap();
+                                                                  if active.insert(uuid.clone()) {
+                                                                      let _ = ui_callback_c("download_progress", serde_json::json!({
+                                                                          "uuid": uuid.clone(),
+                                                                          "progress": 0,
+                                                                          "downloaded": 0
+                                                                      }));
+                                                                      let peer_ip = src_ip.to_string();
+                                                                      let c_crypto = crypto_c.clone();
+                                                                      let c_dir = app_data_dir_c.clone();
+                                                                      let c_cb = ui_callback_c.clone();
+                                                                      let thread_uuid = uuid.clone();
+                                                                      std::thread::spawn(move || {
+                                                                          let _ = crate::network::download_attachment(&peer_ip, &thread_uuid, c_crypto, c_dir, c_cb);
+                                                                          if let Ok(mut active) = crate::network::ACTIVE_DOWNLOADS.get().unwrap().lock() {
+                                                                              active.remove(&thread_uuid);
+                                                                          }
+                                                                      });
+                                                                  }
                                                               }
                                                           }
                                                       }
                                                     let _ = ui_callback_c("clipboard-update", serde_json::json!({}));
-                                                }
-                                                for e in events_clone {
-                                                    if e.has_attachment.unwrap_or(false) {
-                                                        let peer_ip = src_ip.to_string();
-                                                        let raw_path = e.attachment_path.clone().unwrap_or_default();
-                                                        let extracted = std::path::Path::new(&raw_path).file_stem().unwrap_or_default().to_string_lossy().to_string();
-                                                        let uuid = if extracted.is_empty() { e.clip_uuid.clone() } else { extracted };
-                                                        let c_crypto = crypto_c.clone();
-                                                        let c_dir = app_data_dir_c.clone();
-                                                        let c_cb = ui_callback_c.clone();
-                                                        
-                                                        let path = c_dir.join("attachments").join(format!("{}.png", uuid));
-                                                        let legacy_path = c_dir.join("attachments").join(format!("{}.bin", uuid));
-                                                        let enc_path = c_dir.join("attachments").join(format!("{}.enc", uuid));
-                                                        if !path.exists() && !legacy_path.exists() && !enc_path.exists() {
-                                                            let active_lock = crate::network::ACTIVE_DOWNLOADS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-                                                            let mut active = active_lock.lock().unwrap();
-                                                            if active.insert(uuid.clone()) {
-                                                                std::thread::spawn(move || {
-                                                                    let _ = crate::network::download_attachment(&peer_ip, &uuid, c_crypto, c_dir, c_cb);
-                                                                    if let Ok(mut active) = crate::network::ACTIVE_DOWNLOADS.get().unwrap().lock() {
-                                                                        active.remove(&uuid);
-                                                                    }
-                                                                });
-                                                            }
-                                                        }
-                                                    }
                                                 }
                                             }
                                         }
