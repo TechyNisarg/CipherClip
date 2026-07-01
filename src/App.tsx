@@ -548,9 +548,8 @@ function App() {
           const rawUuid = clip.attachment_uuid || clip.attachment_path;
           const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
           if (uuid) {
-            const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid });
-            const tauriImg = await TauriImage.fromBytes(new Uint8Array(bytes));
-            await writeImage(tauriImg);
+            const bytes = await invoke<number[]>("get_attachment_bytes", { uuid });
+            await invoke("copy_image_bytes", { bytes });
           } else {
             await invoke("copy_attachment", { 
               path: clip.attachment_path,
@@ -585,8 +584,8 @@ function App() {
           const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
           if (pngBlob) {
             const arrayBuffer = await pngBlob.arrayBuffer();
-            const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-            await writeImage(tauriImg);
+            const bytes = Array.from(new Uint8Array(arrayBuffer));
+            await invoke("copy_image_bytes", { bytes });
           } else {
             throw new Error("Failed to create PNG blob for legacy image");
           }

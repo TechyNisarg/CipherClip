@@ -663,6 +663,33 @@ async fn copy_attachment(_app_handle: tauri::AppHandle, _path: String, _content_
     Err("copy_attachment is not supported on mobile".to_string())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn copy_image_bytes(bytes: Vec<u8>) -> Result<(), String> {
+    use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
+    let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
+    
+    let temp_dir = std::env::temp_dir();
+    let temp_path = temp_dir.join(format!("cipherclip_copy_{}.png", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    
+    std::fs::write(&temp_path, &bytes).map_err(|e| format!("Temp write error: {}", e))?;
+    
+    let res = if let Ok(img) = RustImage::from_path(&temp_path.to_string_lossy().to_string()) {
+        ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e))
+    } else {
+        Err("Failed to parse image from temp file".to_string())
+    };
+    
+    let _ = std::fs::remove_file(&temp_path);
+    res
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn copy_image_bytes(_bytes: Vec<u8>) -> Result<(), String> {
+    Err("copy_image_bytes is not supported on mobile".to_string())
+}
+
 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -841,6 +868,7 @@ pub fn run() {
             toggle_clip_lock,
             open_image_preview,
             copy_attachment,
+            copy_image_bytes,
             export_attachment,
             get_connected_peers,
             disconnect_peer,
