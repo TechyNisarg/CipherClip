@@ -7,10 +7,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
 import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2, FileText, Image as ImageIcon } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
-import { writeText as writeTextToClipboard, writeImage } from '@tauri-apps/plugin-clipboard-manager';
+import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
-import { Image as TauriImage } from '@tauri-apps/api/image';
 import { type as osType } from '@tauri-apps/plugin-os';
 
 const isMobile = osType() === 'android' || osType() === 'ios';
