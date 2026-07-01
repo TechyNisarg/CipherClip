@@ -633,27 +633,22 @@ async fn copy_attachment(app_handle: tauri::AppHandle, path: String, content_typ
     let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
 
     if content_type == "image" {
-        let mut attempt = 0;
-        let mut res = Err("Failed to set image clipboard".to_string());
-        while attempt < 5 {
-            if let Ok(img) = RustImage::from_path(&path) {
-                match ctx.set_image(img) {
-                    Ok(_) => {
-                        res = Ok(());
-                        break;
-                    }
-                    Err(e) => {
-                        res = Err(format!("Failed to set image clipboard: {}", e));
-                        std::thread::sleep(std::time::Duration::from_millis(50));
-                        attempt += 1;
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Ok(img) = image::load_from_memory(&bytes) {
+                let img_rgba = img.into_rgba8();
+                let img_data = arboard::ImageData {
+                    width: img_rgba.width() as usize,
+                    height: img_rgba.height() as usize,
+                    bytes: std::borrow::Cow::Owned(img_rgba.into_raw()),
+                };
+                if let Ok(mut ctx) = arboard::Clipboard::new() {
+                    if ctx.set_image(img_data).is_ok() {
+                        return Ok(());
                     }
                 }
-            } else {
-                res = Err("Failed to load image from path".to_string());
-                break;
             }
         }
-        res
+        return Err("Failed to set image clipboard".to_string());
     } else {
         let file_uri = if path.starts_with("file://") {
             path
@@ -681,36 +676,20 @@ async fn copy_attachment(_app_handle: tauri::AppHandle, _path: String, _content_
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn copy_image_bytes(bytes: Vec<u8>) -> Result<(), String> {
-    use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
-    let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
-    
-    let temp_dir = std::env::temp_dir();
-    let temp_path = temp_dir.join(format!("cipherclip_copy_{}.png", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-    
-    std::fs::write(&temp_path, &bytes).map_err(|e| format!("Temp write error: {}", e))?;
-    
-    let mut res = Err("Failed to parse image from temp file".to_string());
-    let mut attempt = 0;
-    while attempt < 5 {
-        if let Ok(img) = RustImage::from_path(&temp_path.to_string_lossy().to_string()) {
-            match ctx.set_image(img) {
-                Ok(_) => {
-                    res = Ok(());
-                    break;
-                }
-                Err(e) => {
-                    res = Err(format!("Failed to set image clipboard: {}", e));
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                    attempt += 1;
-                }
+    if let Ok(img) = image::load_from_memory(&bytes) {
+        let img_rgba = img.into_rgba8();
+        let img_data = arboard::ImageData {
+            width: img_rgba.width() as usize,
+            height: img_rgba.height() as usize,
+            bytes: std::borrow::Cow::Owned(img_rgba.into_raw()),
+        };
+        if let Ok(mut ctx) = arboard::Clipboard::new() {
+            if ctx.set_image(img_data).is_ok() {
+                return Ok(());
             }
-        } else {
-            break;
         }
     }
-    
-    let _ = std::fs::remove_file(&temp_path);
-    res
+    Err("Failed to set image clipboard".to_string())
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
