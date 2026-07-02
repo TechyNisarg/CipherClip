@@ -436,14 +436,14 @@ impl Database {
             while let Some(row) = rows.next()? {
                 uuids.push(row.get::<_, String>(0)?);
             }
-            self.conn.execute("DELETE FROM clipboard_history", ())?;
+            self.conn.execute("UPDATE clipboard_history SET is_deleted = 1", ())?;
         } else {
             let mut stmt = self.conn.prepare("SELECT uuid FROM clipboard_history WHERE is_locked = 0")?;
             let mut rows = stmt.query([])?;
             while let Some(row) = rows.next()? {
                 uuids.push(row.get::<_, String>(0)?);
             }
-            self.conn.execute("DELETE FROM clipboard_history WHERE is_locked = 0", ())?;
+            self.conn.execute("UPDATE clipboard_history SET is_deleted = 1 WHERE is_locked = 0", ())?;
         }
         
         let vector_clock = self.get_next_hlc();
@@ -490,7 +490,7 @@ impl Database {
                     COALESCE(e.payload, c.encrypted_payload) as payload, 
                     COALESCE(e.has_attachment, c.has_attachment, 0) as has_attachment, 
                     COALESCE(e.attachment_path, c.attachment_path) as attachment_path, 
-                    c.pinned, c.is_locked 
+                    c.pinned, c.is_locked, c.is_deleted 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              WHERE e.vector_clock > ?1
@@ -498,14 +498,23 @@ impl Database {
         )?;
 
         let event_iter = stmt.query_map([hlc_cursor], |row| {
+            let mut event_type: String = row.get(0)?;
+            let is_deleted: Option<bool> = row.get(11).unwrap_or(None);
+            let mut payload: Option<Vec<u8>> = row.get(6).ok();
+            
+            if is_deleted == Some(true) && event_type != "DELETE" {
+                event_type = "DELETE".to_string();
+                payload = None;
+            }
+
             Ok(SyncEvent {
-                event_type: row.get(0)?,
+                event_type,
                 clip_uuid: row.get(1)?,
                 device_id: row.get(2)?,
                 vector_clock: row.get(3)?,
                 timestamp: row.get(4)?,
                 content_type: row.get(5).ok(),
-                payload: row.get(6).ok(),
+                payload,
                 has_attachment: row.get(7).ok(),
                 attachment_path: row.get(8).ok(),
                 pinned: row.get(9).ok(),
@@ -710,21 +719,30 @@ impl Database {
                     COALESCE(e.payload, c.encrypted_payload) as payload, 
                     COALESCE(e.has_attachment, c.has_attachment, 0) as has_attachment, 
                     COALESCE(e.attachment_path, c.attachment_path) as attachment_path, 
-                    c.pinned, c.is_locked 
+                    c.pinned, c.is_locked, c.is_deleted 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              ORDER BY e.id ASC"
         )?;
         
         let event_iter = stmt.query_map([], |row| {
+            let mut event_type: String = row.get(0)?;
+            let is_deleted: Option<bool> = row.get(11).unwrap_or(None);
+            let mut payload: Option<Vec<u8>> = row.get(6).ok();
+            
+            if is_deleted == Some(true) && event_type != "DELETE" {
+                event_type = "DELETE".to_string();
+                payload = None;
+            }
+
             Ok(SyncEvent {
-                event_type: row.get(0)?,
+                event_type,
                 clip_uuid: row.get(1)?,
                 device_id: row.get(2)?,
                 vector_clock: row.get(3)?,
                 timestamp: row.get(4)?,
                 content_type: row.get(5).ok(),
-                payload: row.get(6).ok(),
+                payload,
                 has_attachment: row.get(7).ok(),
                 attachment_path: row.get(8).ok(),
                 pinned: row.get(9).ok(),
@@ -760,7 +778,7 @@ impl Database {
                     COALESCE(e.payload, c.encrypted_payload) as payload, 
                     COALESCE(e.has_attachment, c.has_attachment, 0) as has_attachment, 
                     COALESCE(e.attachment_path, c.attachment_path) as attachment_path, 
-                    c.pinned, c.is_locked 
+                    c.pinned, c.is_locked, c.is_deleted 
              FROM event_log e 
              LEFT JOIN clipboard_history c ON e.clip_uuid = c.uuid 
              WHERE e.device_id = ?1
@@ -768,14 +786,23 @@ impl Database {
         )?;
 
         let event_iter = stmt.query_map(rusqlite::params![&self.device_id, limit], |row| {
+            let mut event_type: String = row.get(0)?;
+            let is_deleted: Option<bool> = row.get(11).unwrap_or(None);
+            let mut payload: Option<Vec<u8>> = row.get(6).ok();
+            
+            if is_deleted == Some(true) && event_type != "DELETE" {
+                event_type = "DELETE".to_string();
+                payload = None;
+            }
+
             Ok(SyncEvent {
-                event_type: row.get(0)?,
+                event_type,
                 clip_uuid: row.get(1)?,
                 device_id: row.get(2)?,
                 vector_clock: row.get(3)?,
                 timestamp: row.get(4)?,
                 content_type: row.get(5).ok(),
-                payload: row.get(6).ok(),
+                payload,
                 has_attachment: row.get(7).ok(),
                 attachment_path: row.get(8).ok(),
                 pinned: row.get(9).ok(),
