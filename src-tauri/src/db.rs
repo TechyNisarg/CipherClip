@@ -166,10 +166,7 @@ impl Database {
         has_attachment: bool,
         attachment_path: Option<String>,
     ) -> SqlResult<i64> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_micros() as i64;
+        let timestamp = self.get_next_timestamp();
 
         let mut hasher = Sha256::new();
         hasher.update(encrypted_payload);
@@ -235,7 +232,7 @@ impl Database {
         )?;
         
         let vector_clock = self.get_next_hlc();
-        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+        let timestamp = self.get_next_timestamp();
         let event_type = if pinned { "PIN" } else { "UNPIN" };
         self.conn.execute(
             "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -253,7 +250,7 @@ impl Database {
         if is_locked {
             if let Some(uuid) = self.get_uuid_by_id(id)? {
                 let vector_clock = self.get_next_hlc();
-                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+                let timestamp = self.get_next_timestamp();
                 let _ = self.conn.execute(
                     "INSERT OR IGNORE INTO event_log \
                      (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) \
@@ -316,7 +313,7 @@ impl Database {
         // Record a DELETE event so the deletion propagates during sync
         if let Some(uuid) = self.get_uuid_by_id(id)? {
             let vector_clock = self.get_next_hlc();
-            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+            let timestamp = self.get_next_timestamp();
             let _ = self.conn.execute(
                 "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
@@ -328,7 +325,7 @@ impl Database {
     pub fn permanently_delete_clip(&self, id: i64) -> SqlResult<()> {
         if let Some(uuid) = self.get_uuid_by_id(id)? {
             let vector_clock = self.get_next_hlc();
-            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+            let timestamp = self.get_next_timestamp();
             let _ = self.conn.execute(
                 "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
@@ -447,13 +444,15 @@ impl Database {
         }
         
         let vector_clock = self.get_next_hlc();
-        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+        let timestamp = self.get_next_timestamp();
+        let _ = self.conn.execute("BEGIN TRANSACTION", ());
         for uuid in uuids {
             let _ = self.conn.execute(
                 "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
             );
         }
+        let _ = self.conn.execute("COMMIT", ());
         Ok(())
     }
 
@@ -465,6 +464,16 @@ impl Database {
             |row| row.get(0),
         ).unwrap_or(0);
         std::cmp::max(physical, max_db_clock + 1)
+    }
+
+    pub fn get_next_timestamp(&self) -> i64 {
+        let physical = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+        let max_db_ts: i64 = self.conn.query_row(
+            "SELECT MAX(timestamp) FROM event_log",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        std::cmp::max(physical, max_db_ts + 1)
     }
 
     pub fn get_latest_event_uuid(&self) -> SqlResult<Option<String>> {
