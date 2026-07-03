@@ -629,7 +629,8 @@ async fn export_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_,
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, AppState>, path: String, content_type: String) -> Result<(), String> {
-    use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
+    #[cfg(windows)]
+    use clipboard_win;
 
     if content_type == "image" {
         let uuid = std::path::Path::new(&path).file_stem().unwrap_or_default().to_string_lossy().to_string();
@@ -655,53 +656,76 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
         let temp_file = temp_dir.join(format!("{}.png", uuid));
         std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
         
-        let res = if let Ok(img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
-            let (tx, rx) = std::sync::mpsc::channel();
-            app_handle.run_on_main_thread(move || {
-                let r = match ClipboardContext::new() {
-                    Ok(ctx) => ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e)),
-                    Err(e) => Err(format!("Failed to init clipboard: {}", e))
-                };
-                let _ = tx.send(r);
-            }).map_err(|e| e.to_string())?;
-            rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
-        } else {
-            Err("Failed to load image from temp path".to_string())
-        };
+        let res = (|| -> Result<(), String> {
+            let img = image::load_from_memory(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
+            
+            // Encode to BMP
+            let mut bmp_bytes = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut bmp_bytes);
+            img.write_to(&mut cursor, image::ImageFormat::Bmp).map_err(|e| format!("Failed to encode BMP: {}", e))?;
+            
+            // Encode to PNG for transparency support
+            let mut png_bytes = Vec::new();
+            let mut png_cursor = std::io::Cursor::new(&mut png_bytes);
+            let has_png = img.write_to(&mut png_cursor, image::ImageFormat::Png).is_ok();
+            
+            // Prepare DIB bytes (skip 14-byte BITMAPFILEHEADER)
+            let dib_bytes = if bmp_bytes.len() > 14 { &bmp_bytes[14..] } else { &bmp_bytes };
+            
+            // Open clipboard and set formats
+            let _clip = clipboard_win::Clipboard::new_attempts(10).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
+            clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
+            
+            // Set CF_DIB (8)
+            let _ = clipboard_win::raw::set(8, dib_bytes);
+            
+            // Set PNG
+            if has_png {
+                if let Some(png_format) = clipboard_win::register_format("PNG") {
+                    let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
+                }
+            }
+            
+            Ok(())
+        })();
         
         let _ = std::fs::remove_file(temp_file);
         res?;
         Ok(())
     } else {
-        let file_uri = if path.starts_with("file://") {
-            path
-        } else {
-            #[cfg(windows)]
-            {
-                format!("file:///{}", path.replace("\\", "/"))
-            }
-            #[cfg(not(windows))]
-            {
-                format!("file://{}", path)
-            }
-        };
-        
-        let (tx, rx) = std::sync::mpsc::channel();
-        app_handle.run_on_main_thread(move || {
-            let r = match ClipboardContext::new() {
-                Ok(ctx) => ctx.set_files(vec![file_uri.clone()]).map_err(|e| format!("Clipboard error: {}", e)),
-                Err(e) => Err(format!("Failed to init clipboard: {}", e))
-            };
-            let _ = tx.send(r);
-        }).map_err(|e| e.to_string())?;
-        rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
+        #[cfg(windows)]
+        {
+            let res = (|| -> Result<(), String> {
+                let _clip = clipboard_win::Clipboard::new_attempts(10).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
+                clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
+                
+                // Format path for CF_HDROP structure on Windows
+                let wide_path: Vec<u16> = path.replace("file:///", "").replace("/", "\\").encode_utf16().chain(std::iter::once(0)).collect();
+                
+                // DROPFILES struct: 20 bytes long, set fWide to true (1)
+                let mut dropfiles = vec![20u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
+                let mut path_bytes = unsafe { std::slice::from_raw_parts(wide_path.as_ptr() as *const u8, wide_path.len() * 2) }.to_vec();
+                path_bytes.push(0); // Double null termination for list
+                path_bytes.push(0);
+                
+                dropfiles.extend(path_bytes);
+                let _ = clipboard_win::raw::set(15, &dropfiles); // CF_HDROP = 15
+                Ok(())
+            })();
+            res
+        }
+        #[cfg(not(windows))]
+        {
+            Err("File copy unsupported natively on this OS without clipboard-rs".to_string())
+        }
     }
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
-async fn copy_image_from_base64(app_handle: tauri::AppHandle, base64: String) -> Result<(), String> {
-    use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
+async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -> Result<(), String> {
+    #[cfg(windows)]
+    use clipboard_win;
     use base64::{Engine as _, engine::general_purpose};
     
     let bytes = general_purpose::STANDARD.decode(base64).map_err(|e| e.to_string())?;
@@ -710,19 +734,41 @@ async fn copy_image_from_base64(app_handle: tauri::AppHandle, base64: String) ->
     let temp_file = temp_dir.join(format!("{}.png", uuid::Uuid::new_v4().to_string()));
     std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
     
-    let res = if let Ok(img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
-        let (tx, rx) = std::sync::mpsc::channel();
-        app_handle.run_on_main_thread(move || {
-            let r = match ClipboardContext::new() {
-                Ok(ctx) => ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e)),
-                Err(e) => Err(format!("Failed to init clipboard: {}", e))
-            };
-            let _ = tx.send(r);
-        }).map_err(|e| e.to_string())?;
-        rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
-    } else {
-        Err("Failed to load image from temp path".to_string())
-    };
+    let res = (|| -> Result<(), String> {
+        let img = image::load_from_memory(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
+        
+        // Encode to BMP
+        let mut bmp_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut bmp_bytes);
+        img.write_to(&mut cursor, image::ImageFormat::Bmp).map_err(|e| format!("Failed to encode BMP: {}", e))?;
+        
+        // Encode to PNG for transparency support
+        let mut png_bytes = Vec::new();
+        let mut png_cursor = std::io::Cursor::new(&mut png_bytes);
+        let has_png = img.write_to(&mut png_cursor, image::ImageFormat::Png).is_ok();
+        
+        // Prepare DIB bytes (skip 14-byte BITMAPFILEHEADER)
+        let dib_bytes = if bmp_bytes.len() > 14 { &bmp_bytes[14..] } else { &bmp_bytes };
+        
+        // Open clipboard and set formats
+        #[cfg(windows)]
+        {
+            let _clip = clipboard_win::Clipboard::new_attempts(10).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
+            clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
+            
+            // Set CF_DIB (8)
+            let _ = clipboard_win::raw::set(8, dib_bytes);
+            
+            // Set PNG
+            if has_png {
+                if let Some(png_format) = clipboard_win::register_format("PNG") {
+                    let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
+                }
+            }
+        }
+        
+        Ok(())
+    })();
     
     let _ = std::fs::remove_file(temp_file);
     res?;
