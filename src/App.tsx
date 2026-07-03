@@ -133,6 +133,7 @@ function App() {
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [deleteLocked, setDeleteLocked] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [copyingId, setCopyingId] = useState<number | null>(null);
   const [connectedPeers, setConnectedPeers] = useState<{ip: string, name: string}[]>([]);
   const [knownPeers, setKnownPeers] = useState<{device_id: string, name: string, last_seen: number}[]>([]);
   const [activeTab, setActiveTab] = useState<'recent' | 'pinned'>('recent');
@@ -539,6 +540,7 @@ function App() {
       return;
     }
     
+    setCopyingId(clip.id);
     try {
       if (clip.has_attachment && clip.attachment_path) {
         try {
@@ -601,6 +603,8 @@ function App() {
     } catch (err) {
       console.error("Failed to copy:", err);
       setAlertModal({ message: `Failed to copy: ${err}`, isError: true });
+    } finally {
+      setCopyingId(null);
     }
   };
 
@@ -1036,6 +1040,7 @@ function App() {
                         key={clip.id} 
                         clip={clip} 
                         copiedId={copiedId} 
+                        copyingId={copyingId}
                         hasMasterPassword={hasMasterPassword}
                         handleCopy={(c, autoPaste) => handleCopy(c, autoPaste, false)} 
                         togglePin={togglePin} 
@@ -2411,9 +2416,10 @@ function Tooltip({ children, text, side = "top" }: { children: React.ReactNode, 
   );
 }
 
-function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, deleteClip, requestUnlock, toggleLock, requestSetup, onPreviewImage, downloadingClips }: { 
+function ClipCard({ clip, copiedId, copyingId, hasMasterPassword, handleCopy, togglePin, deleteClip, requestUnlock, toggleLock, requestSetup, onPreviewImage, downloadingClips }: { 
   clip: ClipItem, 
   copiedId: number | null, 
+  copyingId: number | null,
   hasMasterPassword: boolean,
   handleCopy: (c: ClipItem, autoPaste?: boolean) => void, 
   togglePin: (id: number, pinned: boolean) => void, 
@@ -2518,7 +2524,11 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                   onClick={(e) => { e.stopPropagation(); handleCopy(clip); }}
                   className="flex-1 py-1.5 px-3 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium transition-colors shadow-sm"
                 >
-                  Copy to Clipboard
+                  {copyingId === clip.id ? (
+                    <span className="flex items-center justify-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Copying...</span>
+                  ) : copiedId === clip.id ? (
+                    <span className="flex items-center justify-center gap-1"><Check className="w-3.5 h-3.5" /> Copied!</span>
+                  ) : "Copy to Clipboard"}
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); if (clip.attachment_path) openUrl(clip.attachment_path); }}
@@ -2620,7 +2630,7 @@ function ClipCard({ clip, copiedId, hasMasterPassword, handleCopy, togglePin, de
                 }
               }}
               className={`${isMobile ? 'p-3' : 'p-1.5'} hover:bg-indigo-50 dark:hover:bg-indigo-500/10 text-slate-400 hover:text-indigo-500 dark:text-gray-400 dark:hover:text-indigo-400 rounded-lg transition-colors cursor-pointer`}>
-              {copiedId === clip.id ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+              {copyingId === clip.id ? <Loader2 className="w-4 h-4 animate-spin text-blue-500" /> : copiedId === clip.id ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
             </button>
           </Tooltip>
           <Tooltip text="Delete from history">
