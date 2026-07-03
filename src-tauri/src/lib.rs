@@ -672,18 +672,33 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
             // Prepare DIB bytes (skip 14-byte BITMAPFILEHEADER)
             let dib_bytes = if bmp_bytes.len() > 14 { &bmp_bytes[14..] } else { &bmp_bytes };
             
-            // Open clipboard and set formats
-            let _clip = clipboard_win::Clipboard::new_attempts(10).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
-            clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
-            
-            // Set CF_DIB (8)
-            let _ = clipboard_win::raw::set(8, dib_bytes);
-            
-            // Set PNG
-            if has_png {
-                if let Some(png_format) = clipboard_win::register_format("PNG") {
-                    let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
+            #[cfg(windows)]
+            {
+                let _clip = clipboard_win::Clipboard::new_attempts(10).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
+                clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
+                
+                // Set CF_DIB (8)
+                let _ = clipboard_win::raw::set(8, dib_bytes);
+                
+                // Set PNG
+                if has_png {
+                    if let Some(png_format) = clipboard_win::register_format("PNG") {
+                        let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
+                    }
                 }
+            }
+            
+            #[cfg(not(windows))]
+            {
+                let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+                let w = img.width() as usize;
+                let h = img.height() as usize;
+                let img_data = arboard::ImageData {
+                    width: w,
+                    height: h,
+                    bytes: std::borrow::Cow::Borrowed(img.to_rgba8().as_raw()),
+                };
+                clipboard.set_image(img_data).map_err(|e| format!("Failed to set image on macOS/Linux: {}", e))?;
             }
             
             Ok(())
@@ -765,6 +780,19 @@ async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -
                     let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
                 }
             }
+        }
+        
+        #[cfg(not(windows))]
+        {
+            let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+            let w = img.width() as usize;
+            let h = img.height() as usize;
+            let img_data = arboard::ImageData {
+                width: w,
+                height: h,
+                bytes: std::borrow::Cow::Borrowed(img.to_rgba8().as_raw()),
+            };
+            clipboard.set_image(img_data).map_err(|e| format!("Failed to set image on macOS/Linux: {}", e))?;
         }
         
         Ok(())
