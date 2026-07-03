@@ -448,7 +448,12 @@ function App() {
 
     const handleKeyDown = async (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        await invoke('hide_window');
+        const previewEl = document.getElementById('image-preview-modal');
+        if (previewEl) {
+          setPreviewImage(null);
+        } else {
+          await invoke('hide_window');
+        }
       }
       if (e.ctrlKey && e.key.toLowerCase() === 'i') {
         e.preventDefault();
@@ -544,11 +549,6 @@ function App() {
         if (isMobile && clip.content_type === "image") {
           showToast("Image copy not supported. Double-tap to preview, then use the Share button.");
           return;
-        } else if (clip.content_type === "image") {
-          const uuid = clip.attachment_path.split(/[/\\]/).pop()?.split('.')[0] || clip.attachment_path;
-          const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid, maxWidth: null });
-          const tauriImg = await TauriImage.fromBytes(new Uint8Array(bytes));
-          await writeImage(tauriImg);
         } else {
           await invoke("copy_attachment", { 
             path: clip.attachment_path,
@@ -565,6 +565,7 @@ function App() {
           showToast("Image copy not supported. Double-tap to preview, then use the Share button.");
           return;
         } else {
+          // We use png conversion here then send to Rust
           const canvas = document.createElement('canvas');
           const img = new Image();
           img.src = `data:image/webp;base64,${clip.content}`;
@@ -576,8 +577,8 @@ function App() {
           const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
           if (pngBlob) {
             const arrayBuffer = await pngBlob.arrayBuffer();
-            const tauriImg = await TauriImage.fromBytes(new Uint8Array(arrayBuffer));
-            await writeImage(tauriImg);
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+            await invoke("copy_image_from_base64", { base64 });
           } else {
             throw new Error("Failed to create PNG blob for legacy image");
           }
@@ -1071,6 +1072,7 @@ function App() {
       <AnimatePresence>
         {previewImage && (
           <motion.div 
+            id="image-preview-modal"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

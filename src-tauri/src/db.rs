@@ -443,10 +443,10 @@ impl Database {
             self.conn.execute("UPDATE clipboard_history SET is_deleted = 1 WHERE is_locked = 0", ())?;
         }
         
-        let vector_clock = self.get_next_hlc();
-        let timestamp = self.get_next_timestamp();
         let _ = self.conn.execute("BEGIN TRANSACTION", ());
         for uuid in uuids {
+            let vector_clock = self.get_next_hlc();
+            let timestamp = self.get_next_timestamp();
             let _ = self.conn.execute(
                 "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],

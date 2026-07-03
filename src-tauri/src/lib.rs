@@ -630,7 +630,6 @@ async fn export_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_,
 #[tauri::command]
 async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, AppState>, path: String, content_type: String) -> Result<(), String> {
     use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
-    let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
 
     if content_type == "image" {
         let uuid = std::path::Path::new(&path).file_stem().unwrap_or_default().to_string_lossy().to_string();
@@ -657,7 +656,15 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
         std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
         
         let res = if let Ok(img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
-            ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e))
+            let (tx, rx) = std::sync::mpsc::channel();
+            app_handle.run_on_main_thread(move || {
+                let r = match ClipboardContext::new() {
+                    Ok(ctx) => ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e)),
+                    Err(e) => Err(format!("Failed to init clipboard: {}", e))
+                };
+                let _ = tx.send(r);
+            }).map_err(|e| e.to_string())?;
+            rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
         } else {
             Err("Failed to load image from temp path".to_string())
         };
@@ -678,9 +685,47 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
                 format!("file://{}", path)
             }
         };
-        ctx.set_files(vec![file_uri]).map_err(|e| format!("Failed to set file clipboard: {}", e))?;
-        Ok(())
+        
+        let (tx, rx) = std::sync::mpsc::channel();
+        app_handle.run_on_main_thread(move || {
+            let r = match ClipboardContext::new() {
+                Ok(ctx) => ctx.set_files(vec![file_uri.clone()]).map_err(|e| format!("Clipboard error: {}", e)),
+                Err(e) => Err(format!("Failed to init clipboard: {}", e))
+            };
+            let _ = tx.send(r);
+        }).map_err(|e| e.to_string())?;
+        rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
     }
+}
+
+#[tauri::command]
+async fn copy_image_from_base64(app_handle: tauri::AppHandle, base64: String) -> Result<(), String> {
+    use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
+    use base64::{Engine as _, engine::general_purpose};
+    
+    let bytes = general_purpose::STANDARD.decode(base64).map_err(|e| e.to_string())?;
+    
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join(format!("{}.png", uuid::Uuid::new_v4().to_string()));
+    std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
+    
+    let res = if let Ok(img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        app_handle.run_on_main_thread(move || {
+            let r = match ClipboardContext::new() {
+                Ok(ctx) => ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e)),
+                Err(e) => Err(format!("Failed to init clipboard: {}", e))
+            };
+            let _ = tx.send(r);
+        }).map_err(|e| e.to_string())?;
+        rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
+    } else {
+        Err("Failed to load image from temp path".to_string())
+    };
+    
+    let _ = std::fs::remove_file(temp_file);
+    res?;
+    Ok(())
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -867,6 +912,7 @@ pub fn run() {
             toggle_clip_lock,
             open_image_preview,
             copy_attachment,
+            copy_image_from_base64,
             export_attachment,
             get_connected_peers,
             disconnect_peer,
