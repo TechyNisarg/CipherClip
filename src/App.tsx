@@ -2287,14 +2287,14 @@ function App() {
                   <button
                     onClick={() => {
                       setShowFabMenu(false);
-                      fetchHistory();
+                      handleScanQR();
                     }}
                     className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
                   >
                     <div className="w-8 h-8 rounded-full bg-sky-100 dark:bg-sky-500/20 flex items-center justify-center text-sky-500 dark:text-sky-400 shrink-0">
-                      <RefreshCcw className="w-4 h-4" />
+                      <QrCode className="w-4 h-4" />
                     </div>
-                    <span className="text-sm font-medium whitespace-nowrap">Refresh History</span>
+                    <span className="text-sm font-medium whitespace-nowrap">Scan QR</span>
                   </button>
                 </motion.div>
               )}

@@ -628,17 +628,43 @@ async fn export_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_,
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
-async fn copy_attachment(app_handle: tauri::AppHandle, path: String, content_type: String) -> Result<(), String> {
+async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, AppState>, path: String, content_type: String) -> Result<(), String> {
     use clipboard_rs::{Clipboard, ClipboardContext, common::RustImage};
     let ctx = ClipboardContext::new().map_err(|e| format!("Clipboard error: {}", e))?;
 
     if content_type == "image" {
-        if let Ok(img) = RustImage::from_path(&path) {
-            ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e))?;
-            Ok(())
+        let uuid = std::path::Path::new(&path).file_stem().unwrap_or_default().to_string_lossy().to_string();
+        
+        use tauri::Manager;
+        let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
+        let storage = crate::storage::StorageManager::new(app_data_dir).map_err(|e| e.to_string())?;
+        
+        let enc_path = storage.get_encrypted_attachment_path(&uuid);
+        let plain_path = storage.get_attachment_path(&uuid);
+        let legacy = storage.get_legacy_attachment_path(&uuid);
+        
+        let bytes = if enc_path.exists() {
+            let encrypted_bytes = std::fs::read(&enc_path).map_err(|e| format!("Failed to read {}: {}", enc_path.display(), e))?;
+            state.crypto.decrypt(&encrypted_bytes).map_err(|e| e.to_string())?
+        } else if plain_path.exists() {
+            std::fs::read(&plain_path).map_err(|e| format!("Failed to read {}: {}", plain_path.display(), e))?
         } else {
-            Err("Failed to load image from path".to_string())
-        }
+            std::fs::read(&legacy).map_err(|e| format!("File not found: {}", path))?
+        };
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("{}.png", uuid));
+        std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
+        
+        let res = if let Ok(img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
+            ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e))
+        } else {
+            Err("Failed to load image from temp path".to_string())
+        };
+        
+        let _ = std::fs::remove_file(temp_file);
+        res?;
+        Ok(())
     } else {
         let file_uri = if path.starts_with("file://") {
             path
