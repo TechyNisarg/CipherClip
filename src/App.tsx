@@ -544,6 +544,11 @@ function App() {
         if (isMobile && clip.content_type === "image") {
           showToast("Image copy not supported. Double-tap to preview, then use the Share button.");
           return;
+        } else if (clip.content_type === "image") {
+          const uuid = clip.attachment_path.split(/[/\\]/).pop()?.split('.')[0] || clip.attachment_path;
+          const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid, maxWidth: null });
+          const tauriImg = await TauriImage.fromBytes(new Uint8Array(bytes));
+          await writeImage(tauriImg);
         } else {
           await invoke("copy_attachment", { 
             path: clip.attachment_path,
