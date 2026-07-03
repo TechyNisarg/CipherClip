@@ -644,8 +644,8 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
         let legacy = storage.get_legacy_attachment_path(&uuid);
         
         let bytes = if enc_path.exists() {
-            let encrypted_bytes = std::fs::read(&enc_path).map_err(|e| format!("Failed to read {}: {}", enc_path.display(), e))?;
-            state.crypto.decrypt(&encrypted_bytes).map_err(|e| e.to_string())?
+            let encrypted = std::fs::read(&enc_path).map_err(|_e| format!("File not found: {} and {}", path, legacy.display()))?;
+            state.crypto.decrypt(&encrypted).map_err(|_| "Failed to decrypt attachment".to_string())?
         } else if plain_path.exists() {
             std::fs::read(&plain_path).map_err(|e| format!("Failed to read {}: {}", plain_path.display(), e))?
         } else {
@@ -659,22 +659,32 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
         let res = (|| -> Result<(), String> {
             let img = image::load_from_memory(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
             
-            // Encode to BMP
-            let mut bmp_bytes = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut bmp_bytes);
-            img.write_to(&mut cursor, image::ImageFormat::Bmp).map_err(|e| format!("Failed to encode BMP: {}", e))?;
-            
-            // Encode to PNG for transparency support
+            // Encode to PNG for transparency support (using RGBA, before channel swap)
             let mut png_bytes = Vec::new();
             let mut png_cursor = std::io::Cursor::new(&mut png_bytes);
             let has_png = img.write_to(&mut png_cursor, image::ImageFormat::Png).is_ok();
+            
+            // Convert to BGRA explicitly for Windows CF_DIB format by swapping R and B channels
+            let mut rgba_img = img.to_rgba8();
+            for pixel in rgba_img.pixels_mut() {
+                let r = pixel[0];
+                let b = pixel[2];
+                pixel[0] = b;
+                pixel[2] = r;
+            }
+            let bgra_img = image::DynamicImage::ImageRgba8(rgba_img);
+            
+            // Encode to BMP
+            let mut bmp_bytes = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut bmp_bytes);
+            bgra_img.write_to(&mut cursor, image::ImageFormat::Bmp).map_err(|e| format!("Failed to encode BMP: {}", e))?;
             
             // Prepare DIB bytes (skip 14-byte BITMAPFILEHEADER)
             let dib_bytes = if bmp_bytes.len() > 14 { &bmp_bytes[14..] } else { &bmp_bytes };
             
             #[cfg(windows)]
             {
-                let _clip = clipboard_win::Clipboard::new_attempts(10).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
+                let _clip = clipboard_win::Clipboard::new_attempts(30).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
                 clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
                 
                 // Set CF_DIB (8)
@@ -696,9 +706,22 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
                 let img_data = arboard::ImageData {
                     width: w,
                     height: h,
-                    bytes: std::borrow::Cow::Borrowed(img.to_rgba8().as_raw()),
+                    bytes: std::borrow::Cow::Owned(img.into_rgba8().into_raw()),
                 };
-                clipboard.set_image(img_data).map_err(|e| format!("Failed to set image on macOS/Linux: {}", e))?;
+                
+                let mut attempts = 0;
+                loop {
+                    match clipboard.set_image(img_data.clone()) {
+                        Ok(_) => break,
+                        Err(e) => {
+                            attempts += 1;
+                            if attempts >= 10 {
+                                return Err(format!("Failed to set image on macOS/Linux: {}", e));
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                    }
+                }
             }
             
             Ok(())
@@ -752,15 +775,25 @@ async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -
     let res = (|| -> Result<(), String> {
         let img = image::load_from_memory(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
         
-        // Encode to BMP
-        let mut bmp_bytes = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut bmp_bytes);
-        img.write_to(&mut cursor, image::ImageFormat::Bmp).map_err(|e| format!("Failed to encode BMP: {}", e))?;
-        
-        // Encode to PNG for transparency support
+        // Encode to PNG for transparency support (using RGBA, before channel swap)
         let mut png_bytes = Vec::new();
         let mut png_cursor = std::io::Cursor::new(&mut png_bytes);
         let has_png = img.write_to(&mut png_cursor, image::ImageFormat::Png).is_ok();
+        
+        // Convert to BGRA explicitly for Windows CF_DIB format by swapping R and B channels
+        let mut rgba_img = img.to_rgba8();
+        for pixel in rgba_img.pixels_mut() {
+            let r = pixel[0];
+            let b = pixel[2];
+            pixel[0] = b;
+            pixel[2] = r;
+        }
+        let bgra_img = image::DynamicImage::ImageRgba8(rgba_img);
+        
+        // Encode to BMP
+        let mut bmp_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut bmp_bytes);
+        bgra_img.write_to(&mut cursor, image::ImageFormat::Bmp).map_err(|e| format!("Failed to encode BMP: {}", e))?;
         
         // Prepare DIB bytes (skip 14-byte BITMAPFILEHEADER)
         let dib_bytes = if bmp_bytes.len() > 14 { &bmp_bytes[14..] } else { &bmp_bytes };
@@ -768,7 +801,7 @@ async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -
         // Open clipboard and set formats
         #[cfg(windows)]
         {
-            let _clip = clipboard_win::Clipboard::new_attempts(10).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
+            let _clip = clipboard_win::Clipboard::new_attempts(30).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
             clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
             
             // Set CF_DIB (8)
@@ -790,9 +823,22 @@ async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -
             let img_data = arboard::ImageData {
                 width: w,
                 height: h,
-                bytes: std::borrow::Cow::Borrowed(img.to_rgba8().as_raw()),
+                bytes: std::borrow::Cow::Owned(img.into_rgba8().into_raw()),
             };
-            clipboard.set_image(img_data).map_err(|e| format!("Failed to set image on macOS/Linux: {}", e))?;
+            
+            let mut attempts = 0;
+            loop {
+                match clipboard.set_image(img_data.clone()) {
+                    Ok(_) => break,
+                    Err(e) => {
+                        attempts += 1;
+                        if attempts >= 10 {
+                            return Err(format!("Failed to set image on macOS/Linux: {}", e));
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                }
+            }
         }
         
         Ok(())

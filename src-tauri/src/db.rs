@@ -420,8 +420,20 @@ impl Database {
     }
 
     pub fn empty_recycle_bin(&self) -> SqlResult<()> {
-        self.conn
-            .execute("DELETE FROM clipboard_history WHERE is_deleted = 1", ())?;
+        let mut stmt = self.conn.prepare("SELECT uuid FROM clipboard_history WHERE is_deleted = 1")?;
+        let uuids: Vec<String> = stmt.query_map([], |row| row.get(0))?.filter_map(|r| r.ok()).collect();
+        
+        self.conn.execute("DELETE FROM clipboard_history WHERE is_deleted = 1", ())?;
+        
+        for uuid in uuids {
+            let vector_clock = self.get_next_hlc();
+            let timestamp = self.get_next_timestamp();
+            let _ = self.conn.execute(
+                "INSERT INTO event_log (event_type, clip_uuid, device_id, vector_clock, timestamp, has_attachment, attachment_path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
+            );
+        }
+        
         Ok(())
     }
 
@@ -443,7 +455,6 @@ impl Database {
             self.conn.execute("UPDATE clipboard_history SET is_deleted = 1 WHERE is_locked = 0", ())?;
         }
         
-        let _ = self.conn.execute("BEGIN TRANSACTION", ());
         for uuid in uuids {
             let vector_clock = self.get_next_hlc();
             let timestamp = self.get_next_timestamp();
@@ -452,7 +463,7 @@ impl Database {
                 rusqlite::params!["DELETE", &uuid, &self.device_id, vector_clock, timestamp, false, None::<String>],
             );
         }
-        let _ = self.conn.execute("COMMIT", ());
+        
         Ok(())
     }
 
@@ -739,7 +750,11 @@ impl Database {
             let is_deleted: Option<bool> = row.get(11).unwrap_or(None);
             let mut payload: Option<Vec<u8>> = row.get(6).ok();
             
-            if is_deleted == Some(true) && event_type != "DELETE" {
+            // If the clip is marked as deleted, or if it no longer exists in clipboard_history 
+            // (meaning it was permanently purged), we convert all its historical events into DELETE 
+            // events to prevent them from showing up on newly syncing devices.
+            let clip_exists = is_deleted.is_some();
+            if (is_deleted == Some(true) || !clip_exists) && event_type != "DELETE" {
                 event_type = "DELETE".to_string();
                 payload = None;
             }
@@ -799,7 +814,11 @@ impl Database {
             let is_deleted: Option<bool> = row.get(11).unwrap_or(None);
             let mut payload: Option<Vec<u8>> = row.get(6).ok();
             
-            if is_deleted == Some(true) && event_type != "DELETE" {
+            // If the clip is marked as deleted, or if it no longer exists in clipboard_history 
+            // (meaning it was permanently purged), we convert all its historical events into DELETE 
+            // events to prevent them from showing up on newly syncing devices.
+            let clip_exists = is_deleted.is_some();
+            if (is_deleted == Some(true) || !clip_exists) && event_type != "DELETE" {
                 event_type = "DELETE".to_string();
                 payload = None;
             }

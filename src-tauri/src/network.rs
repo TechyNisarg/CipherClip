@@ -31,7 +31,7 @@ pub struct NetworkManager {
     crypto: Arc<CryptoState>,
     instance_id: String,
     settings: Arc<crate::settings::SettingsManager>,
-    last_catchup: Arc<Mutex<HashMap<String, Instant>>>,
+    _last_catchup: Arc<Mutex<HashMap<String, Instant>>>,
     ui_callback: Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>,
 }
 
@@ -82,7 +82,7 @@ impl NetworkManager {
 
         if NETWORK_INITIALIZED.swap(true, Ordering::SeqCst) {
             println!("NetworkManager already initialized! Skipping thread spawn.");
-            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone(), settings: settings.clone(), last_catchup, ui_callback };
+            return Self { peers, blocked_ips, crypto: crypto.clone(), instance_id: instance_id_str.clone(), settings: settings.clone(), _last_catchup: last_catchup, ui_callback };
         }
 
         // 1. UDP Discovery Broadcaster
@@ -814,7 +814,7 @@ impl NetworkManager {
             }
         });
 
-        Self { peers, blocked_ips, crypto, instance_id: instance_id_str, settings, last_catchup, ui_callback }
+        Self { peers, blocked_ips, crypto, instance_id: instance_id_str, settings, _last_catchup: last_catchup, ui_callback }
     }
 
     

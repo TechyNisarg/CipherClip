@@ -600,7 +600,7 @@ function App() {
       }
     } catch (err) {
       console.error("Failed to copy:", err);
-      setAlertModal({ message: "Failed to copy to clipboard", isError: true });
+      setAlertModal({ message: `Failed to copy: ${err}`, isError: true });
     }
   };
 
