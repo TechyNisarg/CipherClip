@@ -653,20 +653,25 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
         
         let temp_dir = std::env::temp_dir();
         let temp_file = temp_dir.join(format!("{}.png", uuid));
-        std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
         
-        let res = if let Ok(img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
-            let (tx, rx) = std::sync::mpsc::channel();
-            app_handle.run_on_main_thread(move || {
-                let r = match ClipboardContext::new() {
-                    Ok(ctx) => ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e)),
-                    Err(e) => Err(format!("Failed to init clipboard: {}", e))
-                };
-                let _ = tx.send(r);
-            }).map_err(|e| e.to_string())?;
-            rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
+        let res = if let Ok(img) = image::load_from_memory(&bytes) {
+            if let Err(e) = img.save_with_format(&temp_file, image::ImageFormat::Png) {
+                Err(format!("Failed to transcode image to PNG: {}", e))
+            } else if let Ok(rust_img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
+                let (tx, rx) = std::sync::mpsc::channel();
+                app_handle.run_on_main_thread(move || {
+                    let r = match ClipboardContext::new() {
+                        Ok(ctx) => ctx.set_image(rust_img).map_err(|e| format!("Failed to set image clipboard: {}", e)),
+                        Err(e) => Err(format!("Failed to init clipboard: {}", e))
+                    };
+                    let _ = tx.send(r);
+                }).map_err(|e| e.to_string())?;
+                rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
+            } else {
+                Err("Failed to load transcoded PNG into clipboard_rs".to_string())
+            }
         } else {
-            Err("Failed to load image from temp path".to_string())
+            Err("Failed to parse image bytes".to_string())
         };
         
         let _ = std::fs::remove_file(temp_file);
@@ -707,20 +712,25 @@ async fn copy_image_from_base64(app_handle: tauri::AppHandle, base64: String) ->
     
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!("{}.png", uuid::Uuid::new_v4().to_string()));
-    std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
     
-    let res = if let Ok(img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
-        let (tx, rx) = std::sync::mpsc::channel();
-        app_handle.run_on_main_thread(move || {
-            let r = match ClipboardContext::new() {
-                Ok(ctx) => ctx.set_image(img).map_err(|e| format!("Failed to set image clipboard: {}", e)),
-                Err(e) => Err(format!("Failed to init clipboard: {}", e))
-            };
-            let _ = tx.send(r);
-        }).map_err(|e| e.to_string())?;
-        rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
+    let res = if let Ok(img) = image::load_from_memory(&bytes) {
+        if let Err(e) = img.save_with_format(&temp_file, image::ImageFormat::Png) {
+            Err(format!("Failed to transcode image to PNG: {}", e))
+        } else if let Ok(rust_img) = RustImage::from_path(temp_file.to_string_lossy().as_ref()) {
+            let (tx, rx) = std::sync::mpsc::channel();
+            app_handle.run_on_main_thread(move || {
+                let r = match ClipboardContext::new() {
+                    Ok(ctx) => ctx.set_image(rust_img).map_err(|e| format!("Failed to set image clipboard: {}", e)),
+                    Err(e) => Err(format!("Failed to init clipboard: {}", e))
+                };
+                let _ = tx.send(r);
+            }).map_err(|e| e.to_string())?;
+            rx.recv().unwrap_or(Err("Failed to receive from main thread".to_string()))
+        } else {
+            Err("Failed to load transcoded PNG into clipboard_rs".to_string())
+        }
     } else {
-        Err("Failed to load image from temp path".to_string())
+        Err("Failed to parse image bytes".to_string())
     };
     
     let _ = std::fs::remove_file(temp_file);
