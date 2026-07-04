@@ -690,12 +690,18 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
                 // Set CF_DIB (8)
                 let _ = clipboard_win::raw::set(8, dib_bytes);
                 
-                // Set PNG
-                if has_png {
-                    if let Some(png_format) = clipboard_win::register_format("PNG") {
-                        let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
-                    }
-                }
+                // Set PNG and image/png (for Chromium)
+                  if has_png {
+                      if let Some(png_format) = clipboard_win::register_format("PNG") {
+                          let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
+                      }
+                      if let Some(image_png_format) = clipboard_win::register_format("image/png") {
+                          let _ = clipboard_win::raw::set(image_png_format.get(), &png_bytes);
+                      }
+                      if let Some(image_x_png_format) = clipboard_win::register_format("image/x-png") {
+                          let _ = clipboard_win::raw::set(image_x_png_format.get(), &png_bytes);
+                      }
+                  }
             }
             
             #[cfg(not(windows))]
@@ -807,12 +813,18 @@ async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -
             // Set CF_DIB (8)
             let _ = clipboard_win::raw::set(8, dib_bytes);
             
-            // Set PNG
-            if has_png {
-                if let Some(png_format) = clipboard_win::register_format("PNG") {
-                    let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
-                }
-            }
+            // Set PNG and image/png (for Chromium)
+              if has_png {
+                  if let Some(png_format) = clipboard_win::register_format("PNG") {
+                      let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
+                  }
+                  if let Some(image_png_format) = clipboard_win::register_format("image/png") {
+                      let _ = clipboard_win::raw::set(image_png_format.get(), &png_bytes);
+                  }
+                  if let Some(image_x_png_format) = clipboard_win::register_format("image/x-png") {
+                      let _ = clipboard_win::raw::set(image_x_png_format.get(), &png_bytes);
+                  }
+              }
         }
         
         #[cfg(not(windows))]

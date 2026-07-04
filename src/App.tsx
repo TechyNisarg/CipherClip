@@ -780,14 +780,15 @@ function App() {
               const rawUuid = clipToTarget.attachment_uuid || clipToTarget.attachment_path;
               const uuid = rawUuid?.split(/[/\\]/).pop()?.split('.')[0];
               if (uuid) {
-                const fullBase64 = await invoke<string>("get_attachment_bytes", { uuid });
-                const mime = getMimeType(fullBase64);
-                setPreviewImage({ src: `data:${mime};base64,${fullBase64}`, uuid });
+                const bytes = await invoke<Uint8Array>("get_attachment_bytes", { uuid });
+                const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
+                setPreviewImage({ src: URL.createObjectURL(blob), uuid });
               } else {
                 const mime = getMimeType(clipToTarget.content);
                 setPreviewImage({ src: `data:${mime};base64,${clipToTarget.content}`, uuid: null });
               }
             } catch(e) {
+              console.error("Failed to load high-res locked preview:", e);
               const mime = getMimeType(clipToTarget.content);
               setPreviewImage({ src: `data:${mime};base64,${clipToTarget.content}`, uuid: null });
             }
