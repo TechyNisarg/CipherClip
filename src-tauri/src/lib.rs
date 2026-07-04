@@ -425,7 +425,7 @@ async fn add_mobile_clip(state: State<'_, AppState>, text: String) -> Result<boo
 }
 
 #[tauri::command]
-async fn add_mobile_image(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, bytes: Vec<u8>) -> Result<bool, String> {
+async fn add_mobile_image(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, bytes: Vec<u8>, thumbnail_base64: Option<String>) -> Result<bool, String> {
     use sha2::{Digest, Sha256};
     
     // Encrypt the image bytes
@@ -441,15 +441,19 @@ async fn add_mobile_image(state: tauri::State<'_, AppState>, app_handle: tauri::
     let enc_path = storage.get_encrypted_attachment_path(&uuid);
     std::fs::write(&enc_path, &encrypted_bytes).map_err(|e| e.to_string())?;
     
-    // Create base64 thumbnail
-    let mut thumbnail = vec![];
-    if let Ok(img) = image::load_from_memory(&bytes) {
-        let resized = img.resize(100, 100 * 10, image::imageops::FilterType::Triangle);
-        let mut cursor = std::io::Cursor::new(&mut thumbnail);
-        let _ = resized.write_to(&mut cursor, image::ImageFormat::Jpeg);
-    }
+    // Use provided thumbnail or create a fallback base64 thumbnail
     use base64::{Engine as _, engine::general_purpose};
-    let b64_thumbnail = general_purpose::STANDARD.encode(&thumbnail);
+    let b64_thumbnail = if let Some(t) = thumbnail_base64 {
+        t
+    } else {
+        let mut thumbnail = vec![];
+        if let Ok(img) = image::load_from_memory(&bytes) {
+            let resized = img.resize(100, 100 * 10, image::imageops::FilterType::Triangle);
+            let mut cursor = std::io::Cursor::new(&mut thumbnail);
+            let _ = resized.write_to(&mut cursor, image::ImageFormat::Jpeg);
+        }
+        general_purpose::STANDARD.encode(&thumbnail)
+    };
     let encrypted_thumbnail = state.crypto.encrypt(b64_thumbnail.as_bytes()).unwrap_or_default();
     
     let limit = state.settings.get().history_limit;
@@ -652,80 +656,28 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
             std::fs::read(&legacy).map_err(|e| format!("File not found: {}", path))?
         };
         
-        let temp_dir = std::env::temp_dir();
-        let temp_file = temp_dir.join(format!("{}.png", uuid));
-        std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
-        
         let res = (|| -> Result<(), String> {
             let img = image::load_from_memory(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
             
-            // Encode to PNG for transparency support (using RGBA, before channel swap)
-            let mut png_bytes = Vec::new();
-            let mut png_cursor = std::io::Cursor::new(&mut png_bytes);
-            let has_png = img.write_to(&mut png_cursor, image::ImageFormat::Png).is_ok();
+            let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+            let w = img.width() as usize;
+            let h = img.height() as usize;
+            let img_data = arboard::ImageData {
+                width: w,
+                height: h,
+                bytes: std::borrow::Cow::Owned(img.into_rgba8().into_raw()),
+            };
             
-            // Convert to BGRA explicitly for Windows CF_DIB format by swapping R and B channels
-            let mut rgba_img = img.to_rgba8();
-            for pixel in rgba_img.pixels_mut() {
-                let r = pixel[0];
-                let b = pixel[2];
-                pixel[0] = b;
-                pixel[2] = r;
-            }
-            let bgra_img = image::DynamicImage::ImageRgba8(rgba_img);
-            
-            // Encode to BMP
-            let mut bmp_bytes = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut bmp_bytes);
-            bgra_img.write_to(&mut cursor, image::ImageFormat::Bmp).map_err(|e| format!("Failed to encode BMP: {}", e))?;
-            
-            // Prepare DIB bytes (skip 14-byte BITMAPFILEHEADER)
-            let dib_bytes = if bmp_bytes.len() > 14 { &bmp_bytes[14..] } else { &bmp_bytes };
-            
-            #[cfg(windows)]
-            {
-                let _clip = clipboard_win::Clipboard::new_attempts(30).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
-                clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
-                
-                // Set CF_DIB (8)
-                let _ = clipboard_win::raw::set(8, dib_bytes);
-                
-                // Set PNG and image/png (for Chromium)
-                  if has_png {
-                      if let Some(png_format) = clipboard_win::register_format("PNG") {
-                          let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
-                      }
-                      if let Some(image_png_format) = clipboard_win::register_format("image/png") {
-                          let _ = clipboard_win::raw::set(image_png_format.get(), &png_bytes);
-                      }
-                      if let Some(image_x_png_format) = clipboard_win::register_format("image/x-png") {
-                          let _ = clipboard_win::raw::set(image_x_png_format.get(), &png_bytes);
-                      }
-                  }
-            }
-            
-            #[cfg(not(windows))]
-            {
-                let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-                let w = img.width() as usize;
-                let h = img.height() as usize;
-                let img_data = arboard::ImageData {
-                    width: w,
-                    height: h,
-                    bytes: std::borrow::Cow::Owned(img.into_rgba8().into_raw()),
-                };
-                
-                let mut attempts = 0;
-                loop {
-                    match clipboard.set_image(img_data.clone()) {
-                        Ok(_) => break,
-                        Err(e) => {
-                            attempts += 1;
-                            if attempts >= 10 {
-                                return Err(format!("Failed to set image on macOS/Linux: {}", e));
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(50));
+            let mut attempts = 0;
+            loop {
+                match clipboard.set_image(img_data.clone()) {
+                    Ok(_) => break,
+                    Err(e) => {
+                        attempts += 1;
+                        if attempts >= 10 {
+                            return Err(format!("Failed to set image on clipboard: {}", e));
                         }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                 }
             }
@@ -733,7 +685,6 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
             Ok(())
         })();
         
-        let _ = std::fs::remove_file(temp_file);
         res?;
         Ok(())
     } else {
@@ -774,81 +725,28 @@ async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -
     
     let bytes = general_purpose::STANDARD.decode(base64).map_err(|e| e.to_string())?;
     
-    let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join(format!("{}.png", uuid::Uuid::new_v4().to_string()));
-    std::fs::write(&temp_file, &bytes).map_err(|e| e.to_string())?;
-    
     let res = (|| -> Result<(), String> {
         let img = image::load_from_memory(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
         
-        // Encode to PNG for transparency support (using RGBA, before channel swap)
-        let mut png_bytes = Vec::new();
-        let mut png_cursor = std::io::Cursor::new(&mut png_bytes);
-        let has_png = img.write_to(&mut png_cursor, image::ImageFormat::Png).is_ok();
+        let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        let w = img.width() as usize;
+        let h = img.height() as usize;
+        let img_data = arboard::ImageData {
+            width: w,
+            height: h,
+            bytes: std::borrow::Cow::Owned(img.into_rgba8().into_raw()),
+        };
         
-        // Convert to BGRA explicitly for Windows CF_DIB format by swapping R and B channels
-        let mut rgba_img = img.to_rgba8();
-        for pixel in rgba_img.pixels_mut() {
-            let r = pixel[0];
-            let b = pixel[2];
-            pixel[0] = b;
-            pixel[2] = r;
-        }
-        let bgra_img = image::DynamicImage::ImageRgba8(rgba_img);
-        
-        // Encode to BMP
-        let mut bmp_bytes = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut bmp_bytes);
-        bgra_img.write_to(&mut cursor, image::ImageFormat::Bmp).map_err(|e| format!("Failed to encode BMP: {}", e))?;
-        
-        // Prepare DIB bytes (skip 14-byte BITMAPFILEHEADER)
-        let dib_bytes = if bmp_bytes.len() > 14 { &bmp_bytes[14..] } else { &bmp_bytes };
-        
-        // Open clipboard and set formats
-        #[cfg(windows)]
-        {
-            let _clip = clipboard_win::Clipboard::new_attempts(30).map_err(|e| format!("Failed to open clipboard: {:?}", e))?;
-            clipboard_win::empty().map_err(|e| format!("Failed to empty clipboard: {:?}", e))?;
-            
-            // Set CF_DIB (8)
-            let _ = clipboard_win::raw::set(8, dib_bytes);
-            
-            // Set PNG and image/png (for Chromium)
-              if has_png {
-                  if let Some(png_format) = clipboard_win::register_format("PNG") {
-                      let _ = clipboard_win::raw::set(png_format.get(), &png_bytes);
-                  }
-                  if let Some(image_png_format) = clipboard_win::register_format("image/png") {
-                      let _ = clipboard_win::raw::set(image_png_format.get(), &png_bytes);
-                  }
-                  if let Some(image_x_png_format) = clipboard_win::register_format("image/x-png") {
-                      let _ = clipboard_win::raw::set(image_x_png_format.get(), &png_bytes);
-                  }
-              }
-        }
-        
-        #[cfg(not(windows))]
-        {
-            let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-            let w = img.width() as usize;
-            let h = img.height() as usize;
-            let img_data = arboard::ImageData {
-                width: w,
-                height: h,
-                bytes: std::borrow::Cow::Owned(img.into_rgba8().into_raw()),
-            };
-            
-            let mut attempts = 0;
-            loop {
-                match clipboard.set_image(img_data.clone()) {
-                    Ok(_) => break,
-                    Err(e) => {
-                        attempts += 1;
-                        if attempts >= 10 {
-                            return Err(format!("Failed to set image on macOS/Linux: {}", e));
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+        let mut attempts = 0;
+        loop {
+            match clipboard.set_image(img_data.clone()) {
+                Ok(_) => break,
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= 10 {
+                        return Err(format!("Failed to set image on clipboard: {}", e));
                     }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
                 }
             }
         }
@@ -856,7 +754,6 @@ async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -
         Ok(())
     })();
     
-    let _ = std::fs::remove_file(temp_file);
     res?;
     Ok(())
 }
