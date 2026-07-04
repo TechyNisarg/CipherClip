@@ -4,6 +4,7 @@ pub mod storage;
 pub mod db;
 pub mod network;
 pub mod settings;
+pub mod image_util;
 #[cfg(windows)]
 pub mod dib;
 
@@ -449,7 +450,7 @@ async fn add_mobile_image(state: tauri::State<'_, AppState>, app_handle: tauri::
         t
     } else {
         let mut thumbnail = vec![];
-        if let Ok(img) = image::load_from_memory(&bytes) {
+        if let Ok(img) = crate::image_util::load_and_orient(&bytes) {
             let resized = img.resize(100, 100 * 10, image::imageops::FilterType::Triangle);
             let mut cursor = std::io::Cursor::new(&mut thumbnail);
             let _ = resized.write_to(&mut cursor, image::ImageFormat::Jpeg);
@@ -494,7 +495,7 @@ fn open_image_preview(base64_data: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let img =
-        image::load_from_memory(&data).map_err(|e| format!("Failed to decode image: {}", e))?;
+        crate::image_util::load_and_orient(&data).map_err(|e| format!("Failed to decode image: {}", e))?;
     let path = std::env::temp_dir().join("cipherclip_preview.png");
     img.save(&path)
         .map_err(|e| format!("Failed to save image: {}", e))?;
@@ -575,7 +576,7 @@ async fn get_attachment_bytes(app_handle: tauri::AppHandle, state: tauri::State<
     // Generate the cached resized version if requested
     if let Some(width) = max_width {
         let mobile_path = storage.attachments_dir.join(format!("{}-w{}.jpg", uuid, width));
-        if let Ok(img) = image::load_from_memory(&bytes) {
+        if let Ok(img) = crate::image_util::load_and_orient(&bytes) {
             if img.width() > width {
                 // Lanczos3 provides much better quality for downscaling
                 let resized = img.resize(width, width * 10, image::imageops::FilterType::Lanczos3);
@@ -659,7 +660,7 @@ async fn copy_attachment(app_handle: tauri::AppHandle, state: tauri::State<'_, A
         };
         
         let res = (|| -> Result<(), String> {
-            let img = image::load_from_memory(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
+            let img = crate::image_util::load_and_orient(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
             
             #[cfg(windows)]
             {
@@ -757,7 +758,7 @@ async fn copy_image_from_base64(_app_handle: tauri::AppHandle, base64: String) -
     let bytes = general_purpose::STANDARD.decode(base64).map_err(|e| e.to_string())?;
     
     let res = (|| -> Result<(), String> {
-        let img = image::load_from_memory(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
+        let img = crate::image_util::load_and_orient(&bytes).map_err(|e| format!("Failed to parse image: {}", e))?;
         
         #[cfg(windows)]
         {

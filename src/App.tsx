@@ -265,49 +265,9 @@ function App() {
     
     try {
       const buffer = await file.arrayBuffer();
-      
-      const img = new Image();
-      const objectUrl = URL.createObjectURL(file);
-      const thumbnailPromise = new Promise<string>((resolve) => {
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const maxDim = 100;
-          let width = img.width;
-          let height = img.height;
-          if (width > height) {
-            if (width > maxDim) {
-              height *= maxDim / width;
-              width = maxDim;
-            }
-          } else {
-            if (height > maxDim) {
-              width *= maxDim / height;
-              height = maxDim;
-            }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            resolve(dataUrl.split(',')[1]);
-          } else {
-            resolve("");
-          }
-          URL.revokeObjectURL(objectUrl);
-        };
-        img.onerror = () => {
-          resolve("");
-          URL.revokeObjectURL(objectUrl);
-        };
-        img.src = objectUrl;
-      });
-      
-      const thumbnailBase64 = await thumbnailPromise;
       const bytes = Array.from(new Uint8Array(buffer));
       
-      const added = await invoke("add_mobile_image", { bytes, thumbnailBase64: thumbnailBase64 || null });
+      const added = await invoke("add_mobile_image", { bytes, thumbnailBase64: null });
       if (added) {
         fetchHistory();
         showToast("Image added successfully!");
