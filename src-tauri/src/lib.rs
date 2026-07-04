@@ -8,7 +8,7 @@ pub mod image_util;
 #[cfg(windows)]
 pub mod dib;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -23,7 +23,7 @@ pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub settings: Arc<SettingsManager>,
     pub crypto: Arc<CryptoState>,
-    pub ignore_next_update: Arc<AtomicBool>,
+    pub ignore_next_update: Arc<AtomicU64>,
     pub network: Arc<NetworkManager>,
 }
 
@@ -375,7 +375,7 @@ fn hide_window(app: tauri::AppHandle) {
 #[tauri::command]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn paste_to_active_window(state: State<'_, AppState>) {
-    state.ignore_next_update.store(true, Ordering::SeqCst);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64; state.ignore_next_update.store(now, Ordering::SeqCst);
 
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(150)); // wait for window to hide
@@ -472,7 +472,7 @@ async fn add_mobile_image(state: tauri::State<'_, AppState>, app_handle: tauri::
 #[tauri::command]
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn paste_to_active_window(state: State<'_, AppState>) {
-    state.ignore_next_update.store(true, Ordering::SeqCst);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64; state.ignore_next_update.store(now, Ordering::SeqCst);
     // Auto-paste is not supported on mobile OS natively via keyboard simulation
 }
 
@@ -483,8 +483,9 @@ fn clear_history(state: State<'_, AppState>, delete_locked: bool) -> Result<(), 
 }
 
 #[tauri::command]
-fn set_ignore_next_update(state: State<'_, AppState>) {
-    state.ignore_next_update.store(true, Ordering::SeqCst);
+fn set_ignore_next_update(state: tauri::State<'_, AppState>) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    state.ignore_next_update.store(now, Ordering::SeqCst);
 }
 #[tauri::command]
 fn open_image_preview(base64_data: String) -> Result<(), String> {
@@ -903,7 +904,7 @@ pub fn run() {
             ui_callback,
         ));
 
-            let ignore_next_update = Arc::new(AtomicBool::new(false));
+            let ignore_next_update = Arc::new(AtomicU64::new(0));
 
             app.manage(AppState {
                 db: db.clone(),

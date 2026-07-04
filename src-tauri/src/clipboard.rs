@@ -10,7 +10,7 @@ use crate::crypto::CryptoState;
 use crate::db::Database;
 use crate::settings::SettingsManager;
 use crate::storage::StorageManager;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Threshold constants for Data Plane ingestion routing.
 /// Text payloads up to this size are stored inline in SQLite.
@@ -24,7 +24,7 @@ pub fn start_listener(
     db: Arc<Mutex<Database>>,
     crypto: Arc<CryptoState>,
     settings: Arc<SettingsManager>,
-    ignore_next_update: Arc<AtomicBool>,
+    ignore_next_update: Arc<AtomicU64>,
     network: Arc<crate::network::NetworkManager>,
 ) {
     // Resolve the app data directory once for StorageManager
@@ -175,11 +175,15 @@ pub fn start_listener(
                     if last_hash.as_ref() != Some(&current_hash) {
                         last_hash = Some(current_hash);
 
-                        if ignore_next_update.swap(false, Ordering::SeqCst) {
-                            println!("Ignoring clipboard update triggered by CipherClip");
-                            // Clean up the attachment we just wrote
-                            let _ = storage.delete_attachment(&attachment_uuid);
-                            continue;
+                        let ignore_time = ignore_next_update.swap(0, Ordering::SeqCst);
+                        if ignore_time > 0 {
+                            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+                            if now.saturating_sub(ignore_time) < 2000 {
+                                println!("Ignoring clipboard update triggered by CipherClip");
+                                // Clean up the attachment we just wrote
+                                let _ = storage.delete_attachment(&attachment_uuid);
+                                continue;
+                            }
                         }
 
                         println!("New clipboard {} detected (attachment path, {} bytes)", ctype, payload.len());
@@ -222,9 +226,13 @@ pub fn start_listener(
                     if last_hash.as_ref() != Some(&current_hash) {
                         last_hash = Some(current_hash);
 
-                        if ignore_next_update.swap(false, Ordering::SeqCst) {
-                            println!("Ignoring clipboard update triggered by CipherClip");
-                            continue;
+                        let ignore_time = ignore_next_update.swap(0, Ordering::SeqCst);
+                        if ignore_time > 0 {
+                            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+                            if now.saturating_sub(ignore_time) < 2000 {
+                                println!("Ignoring clipboard update triggered by CipherClip");
+                                continue;
+                            }
                         }
 
                         println!("New clipboard {} detected (inline, {} bytes)", ctype, stored_payload.len());
@@ -261,7 +269,7 @@ pub fn start_listener(
     _db: Arc<Mutex<Database>>,
     _crypto: Arc<CryptoState>,
     _settings: Arc<SettingsManager>,
-    _ignore_next_update: Arc<AtomicBool>,
+    _ignore_next_update: Arc<AtomicU64>,
     _network: Arc<crate::network::NetworkManager>,
 ) {
     // Mobile OSes do not allow continuous background clipboard polling.
