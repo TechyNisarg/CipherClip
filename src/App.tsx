@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2, FileText, Image as ImageIcon } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2, FileText, Image as ImageIcon, Search } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
@@ -153,6 +153,11 @@ function App() {
   const [deletedClips, setDeletedClips] = useState<ClipItem[]>([]);
   const [isLoadingDeleted, setIsLoadingDeleted] = useState(false);
   const [showRecycleBin, setShowRecycleBin] = useState(false);
+  
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<'All' | 'Text' | 'Images'>('All');
+  const [showSearch, setShowSearch] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   
   const [showNetworkSync, setShowNetworkSync] = useState(false);
   const [showConnectedDevicesModal, setShowConnectedDevicesModal] = useState(false);
@@ -463,6 +468,11 @@ function App() {
       if (e.ctrlKey && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         setShowConnectedDevicesModal(prev => !prev);
+      }
+      if (e.ctrlKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setShowSearch(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -943,7 +953,14 @@ function App() {
     </div>
   );
 
-  const displayedClips = activeTab === 'pinned' ? clips.filter(c => c.pinned) : clips.filter(c => !c.pinned);
+  const displayedClips = clips.filter(c => {
+    if (activeTab === 'pinned' && !c.pinned) return false;
+    if (activeTab === 'recent' && c.pinned) return false;
+    if (searchQuery && !c.content.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (activeFilter === 'Text' && c.content_type !== 'text') return false;
+    if (activeFilter === 'Images' && c.content_type !== 'image') return false;
+    return true;
+  });
 
   if (isScanning) {
     return (
@@ -995,6 +1012,51 @@ function App() {
           </Tooltip>
         </div>
       </header>
+
+      <AnimatePresence>
+        {(!isMobile || showSearch) && (
+          <motion.div
+            initial={{ height: 0, opacity: 0, overflow: "hidden" }}
+            animate={{ height: "auto", opacity: 1, overflow: "visible" }}
+            exit={{ height: 0, opacity: 0, overflow: "hidden" }}
+            className="w-full max-w-xl mb-4"
+          >
+            <div className="relative mb-2">
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search history..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white dark:bg-[#161b22] text-slate-800 dark:text-gray-200 pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 dark:border-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shadow-sm"
+              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              {(searchQuery || (isMobile && showSearch)) && (
+                <button 
+                  onClick={() => {
+                    if (isMobile && !searchQuery) setShowSearch(false);
+                    setSearchQuery("");
+                  }} 
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-300 transition-colors p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2 px-1">
+              {['All', 'Text', 'Images'].map(filter => (
+                <button
+                  key={filter}
+                  onClick={() => setActiveFilter(filter as any)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${activeFilter === filter ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30 shadow-sm' : 'bg-white dark:bg-[#161b22] text-slate-500 dark:text-gray-400 border-slate-200 dark:border-gray-800 hover:bg-slate-50 dark:hover:bg-gray-800/50'}`}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="w-full max-w-xl flex-1 flex flex-col gap-3 transition-all duration-300">
         {loading ? (
@@ -2125,15 +2187,9 @@ function App() {
                 />
                 <button
                   type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onTouchStart={(e) => { 
-                    e.preventDefault(); 
-                    setShowPasswordIcon(prev => !prev); 
-                    setTimeout(() => passwordInputRef.current?.focus(), 50);
-                  }}
-                  onClick={() => {
-                    setShowPasswordIcon(!showPasswordIcon);
-                    setTimeout(() => passwordInputRef.current?.focus(), 50);
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    setShowPasswordIcon(prev => !prev);
                   }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
                 >
@@ -2206,15 +2262,9 @@ function App() {
                 />
                 <button
                   type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onTouchStart={(e) => { 
-                    e.preventDefault(); 
-                    setShowPasswordIcon(prev => !prev); 
-                    setTimeout(() => passwordInputRef.current?.focus(), 50);
-                  }}
-                  onClick={() => {
-                    setShowPasswordIcon(!showPasswordIcon);
-                    setTimeout(() => passwordInputRef.current?.focus(), 50);
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    setShowPasswordIcon(prev => !prev);
                   }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
                 >
@@ -2273,6 +2323,19 @@ function App() {
                   exit={{ opacity: 0, y: 10, scale: 0.9 }}
                   className="flex flex-col items-stretch gap-3 pointer-events-auto min-w-[160px]"
                 >
+                  <button
+                    onClick={() => {
+                      setShowFabMenu(false);
+                      setShowSearch(true);
+                      setTimeout(() => searchInputRef.current?.focus(), 50);
+                    }}
+                    className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-violet-100 dark:bg-violet-500/20 flex items-center justify-center text-violet-500 dark:text-violet-400 shrink-0">
+                      <Search className="w-4 h-4" />
+                    </div>
+                    <span className="text-sm font-medium whitespace-nowrap">Search</span>
+                  </button>
                   <button
                     onClick={() => {
                       setShowFabMenu(false);
