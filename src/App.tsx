@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
-import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2, FileText, Image as ImageIcon, Search } from "lucide-react";
+import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2, FileText, Image as ImageIcon, Search, Layers, Type } from "lucide-react";
 import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
@@ -157,6 +157,8 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<'All' | 'Text' | 'Images'>('All');
   const [showSearch, setShowSearch] = useState(false);
+  const showSearchRef = useRef(showSearch);
+  useEffect(() => { showSearchRef.current = showSearch; }, [showSearch]);
   const searchInputRef = useRef<HTMLInputElement>(null);
   
   const [showNetworkSync, setShowNetworkSync] = useState(false);
@@ -457,6 +459,8 @@ function App() {
         const previewEl = document.getElementById('image-preview-modal');
         if (previewEl) {
           setPreviewImage(null);
+        } else if (showSearchRef.current) {
+          setShowSearch(false);
         } else {
           await invoke('hide_window');
         }
@@ -1014,45 +1018,68 @@ function App() {
       </header>
 
       <AnimatePresence>
-        {(!isMobile || showSearch) && (
+        {showSearch && (
           <motion.div
             initial={{ height: 0, opacity: 0, overflow: "hidden" }}
             animate={{ height: "auto", opacity: 1, overflow: "visible" }}
             exit={{ height: 0, opacity: 0, overflow: "hidden" }}
-            className="w-full max-w-xl mb-4"
+            className={`w-full max-w-xl mb-4 ${isMobile ? '' : 'absolute top-24 z-50 left-1/2 -translate-x-1/2 px-6'}`}
           >
-            <div className="relative mb-2">
+            <div className={`relative ${!isMobile ? 'shadow-2xl rounded-xl' : ''}`}>
               <input
                 ref={searchInputRef}
                 type="text"
                 placeholder="Search history..."
                 value={searchQuery}
+                onBlur={() => {
+                  if (isMobile && !searchQuery) {
+                    setShowSearch(false);
+                  }
+                }}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white dark:bg-[#161b22] text-slate-800 dark:text-gray-200 pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 dark:border-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shadow-sm"
+                className={`w-full bg-white/90 dark:bg-[#161b22]/90 backdrop-blur-md text-slate-800 dark:text-gray-200 pl-10 pr-32 py-3 rounded-xl border border-slate-200/80 dark:border-gray-800/80 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${isMobile ? 'shadow-sm' : 'shadow-2xl'}`}
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              {(searchQuery || (isMobile && showSearch)) && (
-                <button 
-                  onClick={() => {
-                    if (isMobile && !searchQuery) setShowSearch(false);
-                    setSearchQuery("");
-                  }} 
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-300 transition-colors p-1"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-            <div className="flex gap-2 px-1">
-              {['All', 'Text', 'Images'].map(filter => (
-                <button
-                  key={filter}
-                  onClick={() => setActiveFilter(filter as any)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${activeFilter === filter ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30 shadow-sm' : 'bg-white dark:bg-[#161b22] text-slate-500 dark:text-gray-400 border-slate-200 dark:border-gray-800 hover:bg-slate-50 dark:hover:bg-gray-800/50'}`}
-                >
-                  {filter}
-                </button>
-              ))}
+              
+              {/* Filter Icons inside Search Bar */}
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <Tooltip text="All" side="bottom">
+                  <button
+                    onClick={() => setActiveFilter('All')}
+                    className={`p-1.5 rounded-md transition-colors ${activeFilter === 'All' ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600 dark:hover:text-gray-300'}`}
+                  >
+                    <Layers className="w-4 h-4" />
+                  </button>
+                </Tooltip>
+                <Tooltip text="Text" side="bottom">
+                  <button
+                    onClick={() => setActiveFilter('Text')}
+                    className={`p-1.5 rounded-md transition-colors ${activeFilter === 'Text' ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600 dark:hover:text-gray-300'}`}
+                  >
+                    <Type className="w-4 h-4" />
+                  </button>
+                </Tooltip>
+                <Tooltip text="Images" side="bottom">
+                  <button
+                    onClick={() => setActiveFilter('Images')}
+                    className={`p-1.5 rounded-md transition-colors ${activeFilter === 'Images' ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600 dark:hover:text-gray-300'}`}
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                  </button>
+                </Tooltip>
+                
+                {searchQuery && (
+                  <>
+                    <div className="w-px h-4 bg-slate-200 dark:bg-gray-700 mx-1"></div>
+                    <button 
+                      onClick={() => setSearchQuery("")} 
+                      className="p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -2191,7 +2218,7 @@ function App() {
                     e.preventDefault();
                     setShowPasswordIcon(prev => !prev);
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer p-3 rounded-full"
                 >
                   {showPasswordIcon ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -2266,7 +2293,7 @@ function App() {
                     e.preventDefault();
                     setShowPasswordIcon(prev => !prev);
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 cursor-pointer p-3 rounded-full"
                 >
                   {showPasswordIcon ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -2308,8 +2335,9 @@ function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
                 onClick={() => setShowFabMenu(false)}
-                className="fixed inset-0 z-30 bg-black/5 dark:bg-black/20"
+                className="fixed inset-0 z-30 bg-black/10 dark:bg-black/40 backdrop-blur-sm"
               />
             )}
           </AnimatePresence>
@@ -2323,19 +2351,6 @@ function App() {
                   exit={{ opacity: 0, y: 10, scale: 0.9 }}
                   className="flex flex-col items-stretch gap-3 pointer-events-auto min-w-[160px]"
                 >
-                  <button
-                    onClick={() => {
-                      setShowFabMenu(false);
-                      setShowSearch(true);
-                      setTimeout(() => searchInputRef.current?.focus(), 50);
-                    }}
-                    className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-violet-100 dark:bg-violet-500/20 flex items-center justify-center text-violet-500 dark:text-violet-400 shrink-0">
-                      <Search className="w-4 h-4" />
-                    </div>
-                    <span className="text-sm font-medium whitespace-nowrap">Search</span>
-                  </button>
                   <button
                     onClick={() => {
                       setShowFabMenu(false);
@@ -2373,6 +2388,23 @@ function App() {
                     <span className="text-sm font-medium whitespace-nowrap">Scan QR</span>
                   </button>
                 </motion.div>
+              )}
+            </AnimatePresence>
+            
+            <AnimatePresence>
+              {!showSearch && (
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  onClick={() => {
+                    setShowSearch(true);
+                    setTimeout(() => searchInputRef.current?.focus(), 50);
+                  }}
+                  className="w-14 h-14 pointer-events-auto rounded-full shadow-xl flex items-center justify-center text-indigo-500 dark:text-indigo-400 bg-white dark:bg-slate-800 transition-all transform active:scale-95 border border-slate-200 dark:border-slate-700"
+                >
+                  <Search className="w-6 h-6" />
+                </motion.button>
               )}
             </AnimatePresence>
             
@@ -2528,7 +2560,7 @@ function ClipCard({ clip, copiedId, copyingId, hasMasterPassword, handleCopy, to
 
   return (
     <motion.div
-      layout
+      layout="position"
       key={clip.id}
       onMouseDown={(e) => {
         if (isLocked) {
@@ -2553,8 +2585,8 @@ function ClipCard({ clip, copiedId, copyingId, hasMasterPassword, handleCopy, to
       }}
       initial={{ opacity: 0, y: -10, scale: 0.98, marginBottom: 0 }}
       animate={{ opacity: 1, y: 0, scale: 1, marginBottom: 12 }}
-      exit={{ opacity: 0, scale: 0.95, height: 0, marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0, overflow: "hidden", transition: { duration: 0.35, ease: "easeOut" } }}
-      transition={{ layout: { type: "spring", stiffness: 300, damping: 25 }, opacity: { duration: 0.2 }, scale: { duration: 0.2 }, y: { duration: 0.2 } }}
+      exit={{ opacity: 0, scale: 0.9, height: 0, marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0, borderWidth: 0, overflow: "hidden", transition: { duration: 0.2, ease: "easeInOut" } }}
+      transition={{ layout: { type: "spring", stiffness: 400, damping: 35 }, opacity: { duration: 0.2 }, scale: { duration: 0.2 }, y: { duration: 0.2 } }}
       className="w-full group bg-white dark:bg-[#161b22] border border-slate-200/75 dark:border-gray-800/80 rounded-xl p-3 hover:bg-slate-50/50 dark:hover:bg-[#1c222b] hover:border-indigo-400/60 dark:hover:border-indigo-500/40 transition-colors cursor-pointer select-none overflow-hidden"
     >
       <div className="flex justify-between items-start gap-4">
