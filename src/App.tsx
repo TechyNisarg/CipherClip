@@ -500,8 +500,13 @@ function App() {
       }
       if (e.ctrlKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
-        setShowSearch(true);
-        setTimeout(() => searchInputRef.current?.focus(), 50);
+        if (showSearchRef.current) {
+          setShowSearch(false);
+          setSearchQuery("");
+        } else {
+          setShowSearch(true);
+          setTimeout(() => searchInputRef.current?.focus(), 50);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -559,15 +564,20 @@ function App() {
   }, [fetchHistory]);
 
   useEffect(() => {
-    const isDark = 
-      theme === 'dark' || 
-      (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    const applyTheme = () => {
+      const isDark = theme === 'dark' || (theme === 'system' && mediaQuery.matches);
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    };
+
+    applyTheme();
+    mediaQuery.addEventListener('change', applyTheme);
+    return () => mediaQuery.removeEventListener('change', applyTheme);
   }, [theme]);
 
   const handleCopy = async (clip: ClipItem, autoPaste: boolean = false, isUnlocked: boolean = false) => {
@@ -1047,11 +1057,12 @@ function App() {
           <motion.div
             ref={searchContainerRef}
             initial={{ height: 0, opacity: 0, overflow: "hidden" }}
-            animate={{ height: "auto", opacity: 1, overflow: "visible" }}
-            exit={{ height: 0, opacity: 0, overflow: "hidden" }}
-            className={`w-full max-w-xl mb-4 ${isMobile ? '' : 'absolute top-24 z-50 left-1/2 -translate-x-1/2 px-6'}`}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className={`w-full max-w-xl ${isMobile ? '' : 'absolute top-24 z-50 left-1/2 -translate-x-1/2 px-6'}`}
           >
-            <div className={`relative ${!isMobile ? 'shadow-2xl rounded-xl' : ''}`}>
+            <div className={`relative mb-4 ${!isMobile ? 'shadow-2xl rounded-xl' : ''}`}>
               <input
                 ref={searchInputRef}
                 type="text"
@@ -2416,11 +2427,11 @@ function App() {
             </AnimatePresence>
             
             <AnimatePresence>
-              {!showSearch && (
+              {(!showSearch && !showFabMenu) && (
                 <motion.button
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
+                  initial={{ opacity: 0, scale: 0.5, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.5, y: 20 }}
                   onClick={() => {
                     setShowSearch(true);
                     setTimeout(() => searchInputRef.current?.focus(), 50);
