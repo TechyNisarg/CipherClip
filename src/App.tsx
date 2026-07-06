@@ -160,6 +160,31 @@ function App() {
   const showSearchRef = useRef(showSearch);
   useEffect(() => { showSearchRef.current = showSearch; }, [showSearch]);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Click outside to close search if empty
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (
+        showSearchRef.current && 
+        searchContainerRef.current && 
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        if (!searchQuery) {
+          setShowSearch(false);
+        }
+      }
+    };
+
+    if (showSearch) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [showSearch, searchQuery]);
   
   const [showNetworkSync, setShowNetworkSync] = useState(false);
   const [showConnectedDevicesModal, setShowConnectedDevicesModal] = useState(false);
@@ -1020,6 +1045,7 @@ function App() {
       <AnimatePresence>
         {showSearch && (
           <motion.div
+            ref={searchContainerRef}
             initial={{ height: 0, opacity: 0, overflow: "hidden" }}
             animate={{ height: "auto", opacity: 1, overflow: "visible" }}
             exit={{ height: 0, opacity: 0, overflow: "hidden" }}
@@ -1031,11 +1057,6 @@ function App() {
                 type="text"
                 placeholder="Search history..."
                 value={searchQuery}
-                onBlur={() => {
-                  if (isMobile && !searchQuery) {
-                    setShowSearch(false);
-                  }
-                }}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={`w-full bg-white/90 dark:bg-[#161b22]/90 backdrop-blur-md text-slate-800 dark:text-gray-200 pl-10 pr-32 py-3 rounded-xl border border-slate-200/80 dark:border-gray-800/80 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${isMobile ? 'shadow-sm' : 'shadow-2xl'}`}
               />
@@ -1045,6 +1066,7 @@ function App() {
               <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                 <Tooltip text="All" side="bottom">
                   <button
+                    onPointerDown={(e) => e.preventDefault()}
                     onClick={() => setActiveFilter('All')}
                     className={`p-1.5 rounded-md transition-colors ${activeFilter === 'All' ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600 dark:hover:text-gray-300'}`}
                   >
@@ -1053,6 +1075,7 @@ function App() {
                 </Tooltip>
                 <Tooltip text="Text" side="bottom">
                   <button
+                    onPointerDown={(e) => e.preventDefault()}
                     onClick={() => setActiveFilter('Text')}
                     className={`p-1.5 rounded-md transition-colors ${activeFilter === 'Text' ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600 dark:hover:text-gray-300'}`}
                   >
@@ -1061,6 +1084,7 @@ function App() {
                 </Tooltip>
                 <Tooltip text="Images" side="bottom">
                   <button
+                    onPointerDown={(e) => e.preventDefault()}
                     onClick={() => setActiveFilter('Images')}
                     className={`p-1.5 rounded-md transition-colors ${activeFilter === 'Images' ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600 dark:hover:text-gray-300'}`}
                   >
@@ -1068,17 +1092,17 @@ function App() {
                   </button>
                 </Tooltip>
                 
-                {searchQuery && (
-                  <>
-                    <div className="w-px h-4 bg-slate-200 dark:bg-gray-700 mx-1"></div>
-                    <button 
-                      onClick={() => setSearchQuery("")} 
-                      className="p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </>
-                )}
+                <div className="w-px h-4 bg-slate-200 dark:bg-gray-700 mx-1"></div>
+                <button 
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setSearchQuery("");
+                    setShowSearch(false);
+                  }} 
+                  className="p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
           </motion.div>
