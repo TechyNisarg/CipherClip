@@ -376,11 +376,22 @@ function App() {
         }
       }
     } catch (err: any) {
-      setIsScanning(false);
-      document.documentElement.style.backgroundColor = '';
-      document.body.style.backgroundColor = '';
-      setAlertModal({ message: "Scanner error or cancelled.", isError: true });
-    }
+        setIsScanning(false);
+        document.documentElement.style.backgroundColor = '';
+        document.body.style.backgroundColor = '';
+        setAlertModal({ 
+          title: "Camera Permission",
+          message: "Please grant camera permission to scan the QR code from your desktop CipherClip app.", 
+          isError: true,
+          primaryAction: {
+            label: "Give Permission",
+            onClick: () => {
+              setAlertModal(null);
+              setTimeout(() => handleScanQR(), 300);
+            }
+          }
+        });
+      }
   };
 
   const handleCancelScan = async () => {
@@ -1057,8 +1068,8 @@ function App() {
           <motion.div
             ref={searchContainerRef}
             initial={{ height: 0, opacity: 0, overflow: "hidden" }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1, overflow: "visible" }}
+            exit={{ height: 0, opacity: 0, overflow: "hidden" }}
             transition={{ duration: 0.2, ease: "easeInOut" }}
             className={`w-full max-w-xl ${isMobile ? '' : 'absolute top-24 z-50 left-1/2 -translate-x-1/2 px-6'}`}
           >
@@ -2377,14 +2388,14 @@ function App() {
             )}
           </AnimatePresence>
 
-          <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3 pointer-events-none">
+          <div className="fixed bottom-6 right-6 z-40 pointer-events-none">
             <AnimatePresence>
               {showFabMenu && (
                 <motion.div
                   initial={{ opacity: 0, y: 10, scale: 0.9 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                  className="flex flex-col items-stretch gap-3 pointer-events-auto min-w-[160px]"
+                  className="absolute bottom-[68px] right-0 flex flex-col items-end gap-3 pointer-events-auto min-w-[160px] origin-bottom-right"
                 >
                   <button
                     onClick={() => {
@@ -2436,7 +2447,7 @@ function App() {
                     setShowSearch(true);
                     setTimeout(() => searchInputRef.current?.focus(), 50);
                   }}
-                  className="w-14 h-14 pointer-events-auto rounded-full shadow-xl flex items-center justify-center text-indigo-500 dark:text-indigo-400 bg-white dark:bg-slate-800 transition-all transform active:scale-95 border border-slate-200 dark:border-slate-700"
+                  className="absolute bottom-[68px] right-0 w-14 h-14 pointer-events-auto rounded-full shadow-xl flex items-center justify-center text-indigo-500 dark:text-indigo-400 bg-white dark:bg-slate-800 transition-all transform active:scale-95 border border-slate-200 dark:border-slate-700"
                 >
                   <Search className="w-6 h-6" />
                 </motion.button>
@@ -2445,7 +2456,7 @@ function App() {
             
             <button
               onClick={() => setShowFabMenu(!showFabMenu)}
-              className={`w-14 h-14 pointer-events-auto rounded-full shadow-xl flex items-center justify-center text-white transition-all transform active:scale-95 ${
+              className={`relative z-10 w-14 h-14 pointer-events-auto rounded-full shadow-xl flex items-center justify-center text-white transition-all transform active:scale-95 ${
                 showFabMenu ? 'bg-slate-700 dark:bg-gray-700 rotate-45' : 'bg-indigo-500 hover:bg-indigo-600'
               }`}
             >
