@@ -132,6 +132,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [deleteLocked, setDeleteLocked] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [copyingId, setCopyingId] = useState<number | null>(null);
   const [connectedPeers, setConnectedPeers] = useState<{ip: string, name: string}[]>([]);
@@ -381,13 +382,13 @@ function App() {
         document.body.style.backgroundColor = '';
         setAlertModal({ 
           title: "Camera Permission",
-          message: "Please grant camera permission to scan the QR code from your desktop CipherClip app.", 
+          message: "Please grant camera permission to scan the QR code. If already denied, you must enable it manually in your device Settings.", 
           isError: true,
           primaryAction: {
-            label: "Give Permission",
+            label: "Try Again",
             onClick: () => {
               setAlertModal(null);
-              setTimeout(() => handleScanQR(), 300);
+              setTimeout(() => handleScanQR(), 400);
             }
           }
         });
@@ -670,6 +671,7 @@ function App() {
   };
 
   const executeClearHistory = async () => {
+    setIsClearing(true);
     try {
       await invoke("clear_history", { deleteLocked });
       setClips([]);
@@ -678,6 +680,8 @@ function App() {
       setShowSettings(false);
     } catch (err) {
       console.error("Failed to clear history:", err);
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -2087,7 +2091,7 @@ function App() {
                   type="checkbox" 
                   checked={deleteLocked} 
                   onChange={(e) => setDeleteLocked(e.target.checked)}
-                  className="w-4 h-4 text-red-500 rounded border-gray-300 focus:ring-red-500 dark:focus:ring-red-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                  className="w-4 h-4 text-red-500 rounded border-gray-300 focus:ring-transparent focus:ring-offset-0 dark:bg-gray-700 dark:border-gray-600"
                 />
                 Delete locked clips as well?
               </label>
@@ -2100,9 +2104,10 @@ function App() {
                 </button>
                 <button
                   onClick={executeClearHistory}
-                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20"
+                  disabled={isClearing}
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-colors shadow-sm shadow-red-500/20 flex items-center justify-center gap-2"
                 >
-                  Yes, Delete It All
+                  {isClearing ? <><Loader2 className="w-4 h-4 animate-spin" /> Clearing...</> : "Yes, Delete It All"}
                 </button>
               </div>
             </motion.div>
@@ -2402,7 +2407,7 @@ function App() {
                       setShowFabMenu(false);
                       setShowAddTextModal(true);
                     }}
-                    className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
+                    className="flex items-center justify-start gap-3 w-44 pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
                   >
                     <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-500 dark:text-indigo-400 shrink-0">
                       <FileText className="w-4 h-4" />
@@ -2414,7 +2419,7 @@ function App() {
                       setShowFabMenu(false);
                       if (fileInputRef.current) fileInputRef.current.click();
                     }}
-                    className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
+                    className="flex items-center justify-start gap-3 w-44 pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
                   >
                     <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 shrink-0">
                       <ImageIcon className="w-4 h-4" />
@@ -2426,7 +2431,7 @@ function App() {
                       setShowFabMenu(false);
                       handleScanQR();
                     }}
-                    className="flex items-center justify-start gap-3 w-auto pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
+                    className="flex items-center justify-start gap-3 w-44 pr-6 pl-2 py-2 bg-white dark:bg-[#1a1f26] text-slate-700 dark:text-gray-200 rounded-full shadow-lg border border-slate-200 dark:border-gray-800 active:scale-95 transition-transform"
                   >
                     <div className="w-8 h-8 rounded-full bg-sky-100 dark:bg-sky-500/20 flex items-center justify-center text-sky-500 dark:text-sky-400 shrink-0">
                       <QrCode className="w-4 h-4" />

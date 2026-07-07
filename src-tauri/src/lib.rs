@@ -477,9 +477,13 @@ fn paste_to_active_window(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
-fn clear_history(state: State<'_, AppState>, delete_locked: bool) -> Result<(), String> {
-    let db_guard = state.db.lock().unwrap();
-    db_guard.clear_all(delete_locked).map_err(|e| e.to_string())
+async fn clear_history(state: State<'_, AppState>, delete_locked: bool) -> Result<(), String> {
+    {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        db_guard.clear_all(delete_locked).map_err(|e| e.to_string())?;
+    }
+    state.network.trigger_sync(state.db.clone());
+    Ok(())
 }
 
 #[tauri::command]

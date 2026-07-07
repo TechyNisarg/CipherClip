@@ -298,7 +298,7 @@ impl NetworkManager {
                                                                 if let Some((device_id, map)) = map_opt {
                                                                     // Also push our own recent events so the peer stays up-to-date
                                                                     let mut pushed_events = if let Ok(db_l) = db_catchup.lock() {
-                                                                        db_l.get_recent_events(200).unwrap_or_default()
+                                                                        db_l.get_recent_events(2000).unwrap_or_default()
                                                                     } else { vec![] };
                                                                     for ev in pushed_events.iter_mut() {
                                                                         if let Some(payload_bytes) = &ev.payload {
@@ -833,7 +833,7 @@ impl NetworkManager {
 
                     if let Some((device_id, map)) = map_opt {
                         let mut pushed_events = if let Ok(db_l) = db_clone.lock() {
-                            db_l.get_recent_events(200).unwrap_or_default()
+                            db_l.get_recent_events(2000).unwrap_or_default()
                         } else { vec![] };
                         for ev in pushed_events.iter_mut() {
                             if let Some(payload_bytes) = &ev.payload {
