@@ -6,7 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
 import { Copy, MonitorSmartphone, ShieldCheck, Clock, Trash2, Pin, SlidersHorizontal, X, Check, AlertTriangle, RefreshCcw, ArrowLeft, Network, Key, Maximize2, Loader2, Scan, QrCode, Plus, Eye, EyeOff, Share2, FileText, Image as ImageIcon, Search, Layers, Type } from "lucide-react";
-import { scan, cancel, Format, requestPermissions } from '@tauri-apps/plugin-barcode-scanner';
+import { scan, cancel, Format, requestPermissions, checkPermissions, openAppSettings } from '@tauri-apps/plugin-barcode-scanner';
 import { writeText as writeTextToClipboard } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { writeFile, BaseDirectory } from '@tauri-apps/plugin-fs';
@@ -346,7 +346,26 @@ function App() {
 
   const handleScanQR = async () => {
     try {
-      await requestPermissions();
+      let perm = await checkPermissions();
+      if (perm !== 'granted') {
+        perm = await requestPermissions();
+      }
+      if (perm !== 'granted') {
+        setAlertModal({ 
+          title: "Camera Permission",
+          message: "Camera permission is required to scan QR codes. Please enable it in your device Settings.", 
+          isError: true,
+          primaryAction: {
+            label: "Open Settings",
+            onClick: () => {
+              setAlertModal(null);
+              setTimeout(() => openAppSettings().catch(console.error), 400);
+            }
+          }
+        });
+        return;
+      }
+
       setIsScanning(true);
       document.documentElement.style.backgroundColor = 'transparent';
       document.body.style.backgroundColor = 'transparent';
@@ -377,22 +396,15 @@ function App() {
         }
       }
     } catch (err: any) {
-        setIsScanning(false);
-        document.documentElement.style.backgroundColor = '';
-        document.body.style.backgroundColor = '';
-        setAlertModal({ 
-          title: "Camera Permission",
-          message: "Please grant camera permission to scan the QR code. If already denied, you must enable it manually in your device Settings.", 
-          isError: true,
-          primaryAction: {
-            label: "Try Again",
-            onClick: () => {
-              setAlertModal(null);
-              setTimeout(() => handleScanQR(), 400);
-            }
-          }
-        });
-      }
+      setIsScanning(false);
+      document.documentElement.style.backgroundColor = '';
+      document.body.style.backgroundColor = '';
+      setAlertModal({ 
+        title: "Scanner Error",
+        message: "An error occurred while trying to open the camera: " + String(err), 
+        isError: true
+      });
+    }
   };
 
   const handleCancelScan = async () => {
@@ -2445,9 +2457,10 @@ function App() {
             <AnimatePresence>
               {(!showSearch && !showFabMenu) && (
                 <motion.button
-                  initial={{ opacity: 0, scale: 0.5, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.5, y: 20 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
                   onClick={() => {
                     setShowSearch(true);
                     setTimeout(() => searchInputRef.current?.focus(), 50);
