@@ -2458,11 +2458,7 @@ function App() {
               {(!showSearch && !showFabMenu) && (
                 <motion.button
                   initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  onClick={() => {
-                    setShowSearch(true);
+                  animate={{ opacity: 1, transition: { duration: 0.15, delay: 0.15 } }} exit={{ opacity: 0, transition: { duration: 0.15, delay: 0 } }} onClick={() => { setShowSearch(true);
                     setTimeout(() => searchInputRef.current?.focus(), 50);
                   }}
                   className="absolute bottom-[68px] right-0 w-14 h-14 pointer-events-auto rounded-full shadow-xl flex items-center justify-center text-indigo-500 dark:text-indigo-400 bg-white dark:bg-slate-800 transition-all transform active:scale-95 border border-slate-200 dark:border-slate-700"
@@ -2806,3 +2802,4 @@ function ClipCard({ clip, copiedId, copyingId, hasMasterPassword, handleCopy, to
     </motion.div>
   );
 }
+
